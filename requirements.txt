@@ -1,0 +1,21 @@
+# Core
+torch
+torchvision
+transformers>=4.36.0
+accelerate>=0.25.0
+bitsandbytes>=0.41.0
+sentencepiece
+
+# Data
+numpy
+Pillow
+datasets
+requests
+tqdm
+
+# Symbol Detector (M2)
+scikit-learn
+hdbscan
+
+# Visualization
+matplotlib
