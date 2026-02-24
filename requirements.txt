@@ -1,9 +1,9 @@
 # Core
 torch
 torchvision
-transformers>=4.36.0
-accelerate>=0.25.0
-bitsandbytes>=0.41.0
+transformers==5.2.0
+accelerate==1.12.0
+bitsandbytes==0.49.2
 sentencepiece
 
 # Data

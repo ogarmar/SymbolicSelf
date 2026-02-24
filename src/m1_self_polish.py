@@ -89,11 +89,13 @@ class SelfPolishCore:
                 "temperature": GENERATION_TEMPERATURE,
                 "pad_token_id": self.tokenizer.eos_token_id,
             }
-            if pixel_values is not None:
-                generate_kwargs["pixel_values"] = pixel_values
-
+            # LLaVA requiere pixel_values; sin imagen, usar language_model
             with torch.no_grad():
-                output_ids = self.model.generate(**generate_kwargs)
+                if pixel_values is not None:
+                    generate_kwargs["pixel_values"] = pixel_values
+                    output_ids = self.model.generate(**generate_kwargs)
+                else:
+                    output_ids = self.model.language_model.generate(**generate_kwargs)
 
             # Solo decodificar tokens nuevos (no el prompt de entrada)
             new_token_ids = output_ids[0][inputs.input_ids.shape[-1]:]
@@ -169,11 +171,13 @@ class SelfPolishCore:
             "do_sample": False,
             "pad_token_id": self.tokenizer.eos_token_id,
         }
-        if pixel_values is not None:
-            generate_kwargs["pixel_values"] = pixel_values
-
+        # LLaVA requiere pixel_values; sin imagen, usar language_model
         with torch.no_grad():
-            baseline_ids = self.model.generate(**generate_kwargs)
+            if pixel_values is not None:
+                generate_kwargs["pixel_values"] = pixel_values
+                baseline_ids = self.model.generate(**generate_kwargs)
+            else:
+                baseline_ids = self.model.language_model.generate(**generate_kwargs)
 
         new_ids = baseline_ids[0][inputs.input_ids.shape[-1]:]
         baseline_response = self.tokenizer.decode(new_ids, skip_special_tokens=True).strip()

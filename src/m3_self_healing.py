@@ -106,13 +106,16 @@ class SelfHealingEngine:
                 "Llama a establish_baseline() antes de diagnosticar."
             )
 
-        # ── Estabilidad (Jaccard baseline ↔ actual) ────────────────────
-        baseline_set = set(self.baseline_symbols[self.baseline_symbols >= 0])
-        current_set = set(current_symbols[current_symbols >= 0])
+        # ── Estabilidad (1 - JSD baseline ↔ actual) ─────────────────────
+        from src.symbol_detector import SymbolDetector
 
-        intersection = len(baseline_set & current_set)
-        union = len(baseline_set | current_set)
-        stability = intersection / max(union, 1)
+        dist_base = SymbolDetector._symbol_distribution(self.baseline_symbols)
+        dist_curr = SymbolDetector._symbol_distribution(current_symbols)
+        p, q = SymbolDetector._align_distributions(dist_base, dist_curr)
+
+        from scipy.spatial.distance import jensenshannon
+        jsd_val = float(jensenshannon(p, q))
+        stability = 1.0 - jsd_val
 
         # ── Cambio de entropía ─────────────────────────────────────────
         entropy_baseline = self._compute_entropy(self.baseline_symbols)
@@ -183,18 +186,20 @@ class SelfHealingEngine:
             raise RuntimeError("Establece baseline primero.")
 
         rng = np.random.default_rng(42)
+        n_unique = len(set(self.baseline_symbols[self.baseline_symbols >= 0]))
+        n_unique = max(n_unique, 2)  # Evitar división por 0
 
         if degradation_type == "adversarial":
-            # Ruido abrupto → entropía alta, estabilidad baja
-            noise = rng.choice(
-                [-2, -1, 0, 1, 2],
-                size=self.baseline_symbols.shape,
-                p=[0.1, 0.3, 0.3, 0.2, 0.1],
-            )
-            degraded = self.baseline_symbols + noise
+            # Reemplazar gran parte de los símbolos con IDs completamente distintos
+            degraded = self.baseline_symbols.copy()
+            n_to_flip = int(len(degraded) * min(severity, 1.0) * 0.8)
+            flip_indices = rng.choice(len(degraded), size=n_to_flip, replace=False)
+            # Asignar IDs fuera del rango original → Jaccard/JSD bajan
+            new_ids = rng.integers(n_unique + 5, n_unique + 20, size=n_to_flip)
+            degraded[flip_indices] = new_ids
         else:
-            # Shift gradual → drift
-            shift = rng.normal(severity, 0.2, size=self.baseline_symbols.shape)
-            degraded = self.baseline_symbols + shift.astype(int)
+            # Drift: shift gradual proporcional al nº de clusters
+            shift = rng.integers(1, max(2, n_unique // 2), size=self.baseline_symbols.shape)
+            degraded = self.baseline_symbols + shift
 
-        return np.clip(degraded, -1, max(5, degraded.max()))
+        return np.clip(degraded, -1, max(n_unique + 20, degraded.max()))
