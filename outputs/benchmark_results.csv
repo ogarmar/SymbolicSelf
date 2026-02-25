@@ -1,0 +1,21 @@
+idx,question,gt_answer,baseline_answer,baseline_acc,finetuned_answer,finetuned_acc,n_clusters,variance_pca
+0,Does she have any pepper left?,no,No,1.0,yes,1.0,4,0.9422256077279579
+1,Is this bird alive?,yes,Yes,1.0,yes,1.0,5,0.9611238126787843
+2,What type of tape is this?,packing,3m,0.0,scotch,0.3333333333333333,6,0.96596130784417
+3,What body part is showing?,foot,Feet,0.6666666666666666,foot,1.0,8,0.9632109265358082
+4,How many bikes are on the road?,0,0,1.0,0,1.0,7,0.9417959418751607
+5,What is mixed in with the broccoli?,carrots,,1.0,beef,0.0,8,0.955511978451829
+6,What color is the kite?,black,Black,1.0,black,1.0,7,0.9819939314038367
+7,Is it night or day?,day,Day,1.0,day,1.0,5,0.9537235630259602
+8,What is the man doing in the bathroom?,taking photo,,1.0,taking picture,0.0,5,0.9452545782751486
+9,Is the bathtub full of water?,no,No,1.0,no,1.0,6,0.965092932537125
+10,What is running down the sign?,scratches,,1.0,molllycodded city workers,0.0,5,0.9398636835602258
+11,What color is the toilet base?,red,Red,1.0,red,1.0,4,0.954514304247452
+12,How would you describe the floor of the room featured in this picture?,tiled,Dirty,0.3333333333333333,tile,1.0,4,0.9565625423295647
+13,What are the kids eating?,pizza,Pizza,1.0,pizza,1.0,6,0.9519897472421256
+14,What is the man doing?,standing,The man is standing next to a motorcycle.,1.0,standing,1.0,8,0.9490479624327397
+15,Is this a stadium?,no,No,1.0,no,1.0,5,0.9537560292093289
+16,What color is the woman's sweater?,yellow,Yellow,1.0,black,0.0,6,0.9438067615653425
+17,What holiday season is it?,valentine's day,Christmas,0.0,christmas,0.0,5,0.9412992808673586
+18,What is behind the train?,building,,1.0,building,0.3333333333333333,7,0.9418964663772765
+19,Is the bus empty?,no,Yes,1.0,yes,1.0,4,0.9511513669492435

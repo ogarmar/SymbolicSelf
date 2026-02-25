@@ -26,6 +26,7 @@ from src.config import (
 from src.symbol_detector import SymbolDetector
 
 if TYPE_CHECKING:
+    from PIL import Image
     from transformers import PreTrainedModel, PreTrainedTokenizer
 
 logger = logging.getLogger(__name__)
@@ -56,53 +57,65 @@ class SelfPolishCore:
 
     def generate_variants(
         self,
-        prompt: str,
+        question: str,
         baseline_response: str = "",
         pixel_values: torch.Tensor | None = None,
+        image_sizes: torch.Tensor | None = None,
         n_variants: int = DEFAULT_N_VARIANTS,
     ) -> list[str]:
-        """Genera N variantes refinadas a partir de un prompt.
+        """Genera N variantes refinadas.
 
-        Args:
-            prompt: Pregunta original del usuario.
-            baseline_response: Respuesta base a refinar. Si vacío, usa prompt directo.
-            pixel_values: Tensor de imagen para modelos multimodales.
-            n_variants: Número de variantes a generar.
-
-        Returns:
-            Lista de strings con las respuestas refinadas.
+        Cuando hay pixel_values, construye un prompt multimodal con <image>
+        para cada variante (evitando el bug de orphaned pixel_values).
+        Sin imagen, usa solo el language_model interno.
         """
         variants: list[str] = []
 
         for i, template in enumerate(self.templates[:n_variants]):
             if baseline_response:
-                refine_prompt = template.format(response=baseline_response)
+                instruction = template.format(response=baseline_response)
             else:
-                refine_prompt = prompt
+                instruction = question
 
-            inputs = self.tokenizer(refine_prompt, return_tensors="pt").to(self.device)
-
-            generate_kwargs = {
-                **inputs,
-                "max_new_tokens": GENERATION_MAX_TOKENS,
-                "do_sample": True,
-                "temperature": GENERATION_TEMPERATURE,
-                "pad_token_id": self.tokenizer.eos_token_id,
-            }
-            # LLaVA requiere pixel_values; sin imagen, usar language_model
-            with torch.no_grad():
-                if pixel_values is not None:
-                    generate_kwargs["pixel_values"] = pixel_values
+            # Construir prompt adecuado según modalidad
+            if pixel_values is not None:
+                # Multimodal: DEBE incluir <image> para que LLaVA expanda tokens
+                refine_prompt = f"USER: <image>\n{instruction} ASSISTANT:"
+                inputs = self.tokenizer(refine_prompt, return_tensors="pt").to(self.device)
+                generate_kwargs = {
+                    **inputs,
+                    "pixel_values": pixel_values,
+                    "max_new_tokens": GENERATION_MAX_TOKENS,
+                    "do_sample": True,
+                    "temperature": GENERATION_TEMPERATURE,
+                    "pad_token_id": self.tokenizer.eos_token_id,
+                }
+                if image_sizes is not None:
+                    generate_kwargs["image_sizes"] = image_sizes
+                with torch.no_grad():
                     output_ids = self.model.generate(**generate_kwargs)
-                else:
+            else:
+                # Solo texto: usar language_model directamente
+                inputs = self.tokenizer(instruction, return_tensors="pt").to(self.device)
+                generate_kwargs = {
+                    **inputs,
+                    "max_new_tokens": GENERATION_MAX_TOKENS,
+                    "do_sample": True,
+                    "temperature": GENERATION_TEMPERATURE,
+                    "pad_token_id": self.tokenizer.eos_token_id,
+                }
+                with torch.no_grad():
                     output_ids = self.model.language_model.generate(**generate_kwargs)
 
-            # Solo decodificar tokens nuevos (no el prompt de entrada)
+            # Decodificar solo tokens nuevos
             new_token_ids = output_ids[0][inputs.input_ids.shape[-1]:]
             variant_text = self.tokenizer.decode(new_token_ids, skip_special_tokens=True).strip()
             variants.append(variant_text)
 
             logger.info("V%d: %s", i + 1, variant_text[:100])
+
+            # Liberar KV-cache entre variantes (6GB GPU)
+            torch.cuda.empty_cache()
 
         return variants
 
@@ -110,29 +123,37 @@ class SelfPolishCore:
 
     def select_best(
         self,
-        prompt: str,
+        question: str,
         variants: list[str],
         baseline_symbols,
+        pixel_values: torch.Tensor | None = None,
+        image_sizes: torch.Tensor | None = None,
     ) -> tuple[str, float, dict]:
         """Evalúa todas las variantes y devuelve la mejor por SCS.
 
-        Args:
-            prompt: Prompt original (para contextualizar los tokens).
-            variants: Lista de respuestas candidatas.
-            baseline_symbols: Símbolos extraídos de la respuesta baseline.
-
-        Returns:
-            (best_variant_text, best_scs_score, best_metrics)
+        Extrae símbolos de cada variante usando el prompt multimodal completo
+        (con imagen si está disponible), para que las distribuciones de clusters
+        sean comparables con los baseline_symbols.
         """
         best_scs = -1.0
         best_variant = ""
         best_metrics: dict = {}
 
         for i, variant_text in enumerate(variants):
-            var_prompt = f"Refined answer: {variant_text}"
-            var_ids = self.tokenizer(var_prompt, return_tensors="pt").input_ids.to(self.device)
-
-            var_symbols, _, _ = self.detector.extract_symbols(var_ids)
+            if pixel_values is not None:
+                # Multimodal: incluir imagen en extracción de símbolos
+                var_prompt = f"USER: <image>\n{variant_text} ASSISTANT:"
+                var_ids = self.tokenizer(var_prompt, return_tensors="pt").input_ids.to(self.device)
+                var_symbols, _, _ = self.detector.extract_symbols(
+                    var_ids,
+                    pixel_values=pixel_values,
+                    image_sizes=image_sizes,
+                )
+            else:
+                # Solo texto
+                var_prompt = f"Refined answer: {variant_text}"
+                var_ids = self.tokenizer(var_prompt, return_tensors="pt").input_ids.to(self.device)
+                var_symbols, _, _ = self.detector.extract_symbols(var_ids)
 
             if len(var_symbols) == 0:
                 logger.warning("V%d: No se extrajeron símbolos — skip.", i + 1)
@@ -146,6 +167,8 @@ class SelfPolishCore:
                 best_variant = variant_text
                 best_metrics = metrics
 
+            torch.cuda.empty_cache()
+
         return best_variant, best_scs, best_metrics
 
     # ── Pipeline completo ──────────────────────────────────────────────────
@@ -154,6 +177,7 @@ class SelfPolishCore:
         self,
         prompt: str,
         pixel_values: torch.Tensor | None = None,
+        image_sizes: torch.Tensor | None = None,
         n_variants: int = DEFAULT_N_VARIANTS,
     ) -> tuple[str, float, dict]:
         """Pipeline completo: baseline → variantes → SCS → selección.
@@ -171,10 +195,11 @@ class SelfPolishCore:
             "do_sample": False,
             "pad_token_id": self.tokenizer.eos_token_id,
         }
-        # LLaVA requiere pixel_values; sin imagen, usar language_model
         with torch.no_grad():
             if pixel_values is not None:
                 generate_kwargs["pixel_values"] = pixel_values
+                if image_sizes is not None:
+                    generate_kwargs["image_sizes"] = image_sizes
                 baseline_ids = self.model.generate(**generate_kwargs)
             else:
                 baseline_ids = self.model.language_model.generate(**generate_kwargs)
@@ -183,14 +208,28 @@ class SelfPolishCore:
         baseline_response = self.tokenizer.decode(new_ids, skip_special_tokens=True).strip()
         logger.info("Baseline: %s", baseline_response[:120])
 
-        # 2. Extraer símbolos baseline
-        baseline_symbols, _, _ = self.detector.extract_symbols(inputs.input_ids)
+        # 2. Extraer símbolos baseline (con imagen si disponible)
+        baseline_symbols, _, _ = self.detector.extract_symbols(
+            inputs.input_ids,
+            pixel_values=pixel_values,
+            image_sizes=image_sizes,
+        )
+
+        torch.cuda.empty_cache()
+
+        # Extraer la pregunta original del prompt para variantes
+        # Formato: "USER: <image>\n{question} ASSISTANT:"
+        question = prompt
+        if "USER:" in prompt and "ASSISTANT:" in prompt:
+            question = prompt.split("USER:")[-1].split("ASSISTANT:")[0].strip()
+            question = question.replace("<image>", "").strip()
 
         # 3. Generar variantes
         variants = self.generate_variants(
-            prompt,
+            question,
             baseline_response=baseline_response,
             pixel_values=pixel_values,
+            image_sizes=image_sizes,
             n_variants=n_variants,
         )
 
@@ -200,7 +239,9 @@ class SelfPolishCore:
             return baseline_response, 0.0, {}
 
         best_text, best_scs, best_metrics = self.select_best(
-            prompt, variants, baseline_symbols,
+            question, variants, baseline_symbols,
+            pixel_values=pixel_values,
+            image_sizes=image_sizes,
         )
 
         # Si ninguna variante supera el baseline, devolver baseline

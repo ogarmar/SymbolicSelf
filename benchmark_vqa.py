@@ -2,7 +2,9 @@
 """
 Compara accuracy VQA-v2 entre:
   - Baseline: LLaVA zero-shot (greedy)
-  - Fine-tuned: LLaVA + LoRA adapter (greedy)
+  - Fine-tuned: LLaVA + LoRA adapter (greedy, misma instancia)
+
+Usa un solo modelo en memoria y aplica/desactiva el adapter.
 
 Uso:
   python benchmark_vqa.py --n_samples 20
@@ -31,7 +33,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 def load_model(adapter_path=None):
-    """Carga modelo LLaVA. Si adapter_path, aplica LoRA adapter."""
+    """Carga UN solo modelo LLaVA. Si adapter_path, aplica LoRA adapter."""
     print("🔧 Cargando modelo base...")
     bnb_config = BitsAndBytesConfig(**QUANTIZATION)
     processor = LlavaNextProcessor.from_pretrained(MODEL_ID)
@@ -44,12 +46,14 @@ def load_model(adapter_path=None):
         low_cpu_mem_usage=True,
     )
 
+    has_adapter = False
     if adapter_path and Path(adapter_path).exists():
         print(f"🔌 Cargando LoRA adapter desde {adapter_path}...")
         model = PeftModel.from_pretrained(model, adapter_path)
-        print("✅ Adapter cargado")
+        has_adapter = True
+        print("✅ Adapter cargado (enable/disable para comparar)")
 
-    return model, processor
+    return model, processor, has_adapter
 
 
 def inference(model, processor, image, question, max_tokens=30):
@@ -77,24 +81,16 @@ def main():
     parser.add_argument("--output", type=str, default="outputs/benchmark_results.csv")
     args = parser.parse_args()
 
-    has_adapter = args.adapter and Path(args.adapter).exists()
-
-    # ── Cargar modelos ─────────────────────────────────────────────────
-    # Baseline (sin adapter)
-    model_base, processor = load_model(adapter_path=None)
-    detector = SymbolDetector(model_base)
-
-    # Fine-tuned (con adapter) — si se proporciona
-    model_ft = None
-    if has_adapter:
-        model_ft, _ = load_model(adapter_path=args.adapter)
+    # ── Cargar modelo (1 sola instancia) ───────────────────────────────
+    model, processor, has_adapter = load_model(adapter_path=args.adapter)
+    detector = SymbolDetector(model)
 
     # ── Dataset (eval split) ───────────────────────────────────────────
     dataset = VQADataset(
         split="val",
         max_samples=args.n_samples,
         train_ratio=0.8,
-        is_train_split=False,  # Usar fracción eval (nunca vista en training)
+        is_train_split=False,
     )
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
@@ -107,9 +103,9 @@ def main():
 
     print(f"\n{'='*80}")
     print(f"  BENCHMARK VQA-v2: {len(dataset)} muestras (eval split)")
-    print(f"  Baseline: {MODEL_ID} (zero-shot)")
+    print(f"  Modelo: {MODEL_ID}")
     if has_adapter:
-        print(f"  Fine-tuned: + LoRA adapter ({args.adapter})")
+        print(f"  Adapter: {args.adapter}")
     print(f"{'='*80}\n")
 
     for i in range(len(dataset)):
@@ -123,21 +119,26 @@ def main():
         print(f"   Q: {question}")
         print(f"   GT: {gt}")
 
-        # ── Baseline ──────────────────────────────────────────────
+        # ── Baseline (sin adapter) ────────────────────────────────
+        if has_adapter:
+            model.disable_adapter_layers()
+
         t0 = time.time()
-        ans_base = inference(model_base, processor, image, question)
+        ans_base = inference(model, processor, image, question)
         t_base = (time.time() - t0) * 1000
 
         acc_base = VQADataset.vqa_accuracy(ans_base, all_answers)
         accs_base.append(acc_base)
         print(f"   Baseline:   {ans_base} (acc={acc_base:.2f}, {t_base:.0f}ms)")
 
-        # ── Fine-tuned ────────────────────────────────────────────
+        # ── Fine-tuned (con adapter) ──────────────────────────────
         acc_ft_val = 0.0
         ans_ft = ""
-        if model_ft is not None:
+        t_ft = 0.0
+        if has_adapter:
+            model.enable_adapter_layers()
             t0 = time.time()
-            ans_ft = inference(model_ft, processor, image, question)
+            ans_ft = inference(model, processor, image, question)
             t_ft = (time.time() - t0) * 1000
 
             acc_ft_val = VQADataset.vqa_accuracy(ans_ft, all_answers)
@@ -149,7 +150,7 @@ def main():
             text=f"USER: <image>\n{question}\nAnswer briefly. ASSISTANT:",
             images=image, return_tensors="pt"
         )
-        inputs = {k: v.to(model_base.device) for k, v in inputs.items()}
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
         symbols, _, variance = detector.extract_symbols(
             inputs["input_ids"],
@@ -167,7 +168,7 @@ def main():
             "gt_answer": gt,
             "baseline_answer": ans_base,
             "baseline_acc": acc_base,
-            "finetuned_answer": ans_ft if model_ft else "",
+            "finetuned_answer": ans_ft if has_adapter else "",
             "finetuned_acc": acc_ft_val,
             "n_clusters": n_clusters,
             "variance_pca": variance,

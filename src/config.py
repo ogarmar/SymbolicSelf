@@ -40,7 +40,6 @@ MAX_MEMORY = {
 
 # ── Symbol Detector ────────────────────────────────────────────────────────
 HOOK_LAYERS = [12, 15, 18]
-PCA_COMPONENTS_GLOBAL = 256  # No usado (PCA ahora es token-level)
 PCA_COMPONENTS_TOKENS = 32   # Dimensiones PCA por token (antes: 64)
 HDBSCAN_MIN_CLUSTER = 10     # Mínimo absoluto (dinámico: max(10, n_tokens//50))
 HDBSCAN_MIN_SAMPLES = 5      # Anti-ruido (antes: 1)

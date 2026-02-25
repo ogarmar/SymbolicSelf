@@ -23,7 +23,6 @@ from src.config import (
     HDBSCAN_MIN_SAMPLES,
     HOOK_LAYERS,
     MAX_TOKENS_PCA,
-    PCA_COMPONENTS_GLOBAL,
     PCA_COMPONENTS_TOKENS,
     SCS_ALPHA,
     SCS_BETA,
@@ -77,7 +76,10 @@ class SymbolDetector:
             hook = llm_layers[idx].register_forward_hook(self._make_capture_fn(f"layer_{idx}"))
             self.hooks.append(hook)
 
-        logger.info("Hooks registrados en %d capas.", len(self.hooks))
+        # Hook en vision tower para cross-modal alignment
+        self._register_vision_hook()
+
+        logger.info("Hooks registrados en %d capas (incl. vision).", len(self.hooks))
 
     def _find_llm_layers(self) -> torch.nn.ModuleList | None:
         """Búsqueda dinámica: encuentra la ModuleList de capas del LLM (no visión)."""
@@ -92,11 +94,46 @@ class SymbolDetector:
         return None
 
     def _make_capture_fn(self, layer_name: str):
-        """Crea un forward-hook closure que captura hidden states."""
+        """Crea un forward-hook closure que captura hidden states.
+
+        Maneja múltiples tipos de output:
+          - tuple → output[0] (capas LLM)
+          - ModelOutput con .last_hidden_state (vision tower)
+          - tensor directo
+        """
         def hook_fn(module, input_, output):
-            hidden = output[0] if isinstance(output, tuple) else output
+            if isinstance(output, tuple):
+                hidden = output[0]
+            elif hasattr(output, "last_hidden_state"):
+                hidden = output.last_hidden_state
+            else:
+                hidden = output
             self.activations[layer_name] = hidden.detach().cpu().numpy()
         return hook_fn
+
+    def _register_vision_hook(self) -> None:
+        """Registra hook en la salida de la vision tower para cross-modal."""
+        vision_tower = None
+        for name, module in self.model.named_modules():
+            if "vision_tower" in name and not any(c for c in module.children()):
+                # Coger el último módulo del vision tower (output)
+                continue
+            if name == "model.vision_tower":
+                vision_tower = module
+                break
+        if vision_tower is None:
+            # Buscar por atributo directo
+            if hasattr(self.model, "vision_tower"):
+                vision_tower = self.model.vision_tower
+            elif hasattr(self.model, "model") and hasattr(self.model.model, "vision_tower"):
+                vision_tower = self.model.model.vision_tower
+
+        if vision_tower is not None:
+            hook = vision_tower.register_forward_hook(self._make_capture_fn("vision_out"))
+            self.hooks.append(hook)
+            logger.info("Vision tower hook registrado.")
+        else:
+            logger.warning("No se encontró vision tower — cross-modal usará fallback.")
 
     # ── Symbol extraction ──────────────────────────────────────────────────
 
@@ -123,9 +160,12 @@ class SymbolDetector:
         self.activations.clear()
 
         # Forward pass — activa los hooks
-        # LLaVA-Next requiere pixel_values + image_sizes; sin imagen, usamos el LLM backbone
+        # LLaVA-Next requiere pixel_values + image_sizes + attention_mask
         with torch.no_grad():
             if pixel_values is not None:
+                # attention_mask es obligatorio para _merge_input_ids_with_image_features
+                if "attention_mask" not in model_kwargs:
+                    model_kwargs["attention_mask"] = torch.ones_like(input_ids)
                 self.model(
                     input_ids=input_ids,
                     pixel_values=pixel_values,
@@ -251,14 +291,30 @@ class SymbolDetector:
         else:
             stability = 1.0  # Primera iteración
 
-        # ── Cross-modal: ratio de tokens asignados (no ruido) ──────────
-        # Con HDBSCAN leaf clustering, 40-60% ruido es normal.
-        # Normalizar con sigmoid: 30%+ asignados → ~0.9
-        n_assigned = int((symbols_current >= 0).sum())
-        n_total = len(symbols_current)
-        raw_ratio = n_assigned / max(n_total, 1)
-        # Sigmoid: ratio 0.3 → 0.8, ratio 0.5 → 0.95, ratio 0.7 → 0.99
-        cross_modal = 1.0 / (1.0 + np.exp(-10 * (raw_ratio - 0.3)))
+        # ── Cross-modal: cosine similarity vision vs language ────────
+        if "vision_out" in self.activations and f"layer_{max(self.layers)}" in self.activations:
+            vis_act = self.activations["vision_out"]
+            lang_act = self.activations[f"layer_{max(self.layers)}"]
+            # Mean pooling across tokens
+            vis_mean = vis_act.reshape(-1, vis_act.shape[-1]).mean(axis=0)
+            lang_mean = lang_act.reshape(-1, lang_act.shape[-1]).mean(axis=0)
+            # Las dimensiones pueden diferir (vision vs language hidden)
+            # Truncar al mínimo
+            min_dim = min(len(vis_mean), len(lang_mean))
+            vis_vec = vis_mean[:min_dim]
+            lang_vec = lang_mean[:min_dim]
+            # Cosine similarity
+            dot = np.dot(vis_vec, lang_vec)
+            norm_v = np.linalg.norm(vis_vec) + 1e-8
+            norm_l = np.linalg.norm(lang_vec) + 1e-8
+            cross_modal = float(dot / (norm_v * norm_l))
+            cross_modal = max(0.0, cross_modal)  # Clamp a [0, 1]
+        else:
+            # Fallback: usar ratio de tokens asignados (normalizado)
+            n_assigned = int((symbols_current >= 0).sum())
+            n_total = len(symbols_current)
+            raw_ratio = n_assigned / max(n_total, 1)
+            cross_modal = 1.0 / (1.0 + np.exp(-10 * (raw_ratio - 0.3)))
 
         # Guardar para próxima iteración
         self._previous_symbols = symbols_current.copy()

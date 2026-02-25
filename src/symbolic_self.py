@@ -58,7 +58,7 @@ class SymbolicSelfPipeline:
         result = pipeline.process("Describe this image", image)
     """
 
-    def __init__(self, model_id: str = MODEL_ID) -> None:
+    def __init__(self, model_id: str = MODEL_ID, adapter_path: str | None = None) -> None:
         logger.info("Cargando modelo %s ...", model_id)
         start = time.time()
 
@@ -73,11 +73,24 @@ class SymbolicSelfPipeline:
             low_cpu_mem_usage=True,
         )
 
+        # ── LoRA adapter (si existe) ───────────────────────────────────
+        self.adapter_path = adapter_path
+        if adapter_path:
+            from pathlib import Path
+            if Path(adapter_path).exists():
+                from peft import PeftModel
+                logger.info("Cargando LoRA adapter desde %s", adapter_path)
+                self.model = PeftModel.from_pretrained(self.model, adapter_path)
+                logger.info("LoRA adapter cargado — modelo fine-tuned activo.")
+            else:
+                logger.warning("adapter_path=%s no existe, usando base model.", adapter_path)
+
         self.detector = SymbolDetector(self.model)
         self.polisher = SelfPolishCore(
             self.model, self.processor.tokenizer, self.detector,
         )
         self.healer = SelfHealingEngine(self.detector)
+        self._baseline_established = False
 
         logger.info("Pipeline listo en %.1fs.", time.time() - start)
 
@@ -107,28 +120,42 @@ class SymbolicSelfPipeline:
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
         pixel_values = inputs.get("pixel_values")
+        image_sizes = inputs.get("image_sizes")
 
         # ── M1: Self-Polish (baseline + variantes + selección por SCS) ─
         best_response, best_scs, metrics = self.polisher.run(
             prompt,
             pixel_values=pixel_values,
+            image_sizes=image_sizes,
             n_variants=n_variants,
         )
 
-        # ── M2: Extraer símbolos finales ───────────────────────────────
-        final_ids = self.processor.tokenizer(
-            best_response, return_tensors="pt",
-        ).input_ids.to(self.model.device)
-        final_symbols, _, _ = self.detector.extract_symbols(final_ids)
+        # ── M2: Extraer símbolos finales (incluyendo imagen) ──────────────
+        final_prompt = f"USER: <image>\n{question}\n{best_response} ASSISTANT:"
+        final_inputs = self.processor(
+            text=final_prompt, images=image, return_tensors="pt",
+        )
+        final_inputs = {k: v.to(self.model.device) for k, v in final_inputs.items()}
+        final_symbols, _, _ = self.detector.extract_symbols(
+            final_inputs["input_ids"],
+            pixel_values=final_inputs.get("pixel_values"),
+            image_sizes=final_inputs.get("image_sizes"),
+        )
 
         # ── M3: Diagnóstico de degradación ─────────────────────────────
         diagnosis_str = "healthy"
         healing_action = ""
         if len(final_symbols) > 0:
-            self.healer.establish_baseline(final_symbols)
-            diagnosis = self.healer.diagnose(final_symbols)
-            diagnosis_str = diagnosis.status.value
-            healing_action = diagnosis.healing_action
+            if not self._baseline_established:
+                # Primera llamada: establecer referencia
+                self.healer.establish_baseline(final_symbols)
+                self._baseline_established = True
+                diagnosis_str = "baseline_set"
+            else:
+                # Llamadas siguientes: diagnosticar contra la referencia
+                diagnosis = self.healer.diagnose(final_symbols)
+                diagnosis_str = diagnosis.status.value
+                healing_action = diagnosis.healing_action
 
         # ── Limpiar VRAM ───────────────────────────────────────────────
         torch.cuda.empty_cache()
