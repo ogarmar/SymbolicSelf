@@ -28,6 +28,7 @@ from src.config import (
     SCS_BETA,
     SCS_GAMMA,
 )
+from src.symbol_utils import align_distributions, symbol_distribution
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
@@ -213,6 +214,14 @@ class SymbolDetector:
         token_latent = pca.fit_transform(token_flat)
         variance_retained = float(pca.explained_variance_ratio_.sum())
 
+        # FIX 8: Advertencia si PCA retiene poca varianza
+        if variance_retained < 0.15:
+            logger.warning(
+                "PCA retiene solo %.1f%% de varianza (<15%%). "
+                "El clustering puede ser poco fiable.",
+                variance_retained * 100,
+            )
+
         # ── HDBSCAN con min_cluster_size dinámico ──────────────────────
         # Escalar con n_tokens: para 1400 tokens → ~28 → produce 5-15 clusters
         dynamic_min_cluster = max(10, n_tokens // 50)
@@ -236,33 +245,9 @@ class SymbolDetector:
 
     # ── Symbolic Coherence Score ───────────────────────────────────────────
 
-    @staticmethod
-    def _symbol_distribution(symbols: np.ndarray) -> np.ndarray:
-        """Convierte cluster IDs en distribución de probabilidad normalizada.
-
-        Excluye ruido (-1). Devuelve vector de frecuencias relativas
-        indexado por cluster ID.
-        """
-        valid = symbols[symbols >= 0]
-        if len(valid) == 0:
-            return np.array([1.0])  # Distribución trivial
-
-        max_id = int(valid.max()) + 1
-        counts = np.bincount(valid, minlength=max_id).astype(float)
-        total = counts.sum()
-        if total == 0:
-            return np.array([1.0])
-        return counts / total
-
-    @staticmethod
-    def _align_distributions(p: np.ndarray, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Alinea dos distribuciones al mismo tamaño (padding con 0)."""
-        max_len = max(len(p), len(q))
-        p_aligned = np.zeros(max_len)
-        q_aligned = np.zeros(max_len)
-        p_aligned[:len(p)] = p
-        q_aligned[:len(q)] = q
-        return p_aligned, q_aligned
+    # FIX 7: Delegado a symbol_utils (DRY)
+    _symbol_distribution = staticmethod(symbol_distribution)
+    _align_distributions = staticmethod(align_distributions)
 
     def compute_scs(
         self,

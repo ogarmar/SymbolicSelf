@@ -89,6 +89,7 @@ class SelfPolishCore:
                     "do_sample": True,
                     "temperature": GENERATION_TEMPERATURE,
                     "pad_token_id": self.tokenizer.eos_token_id,
+                    "use_cache": False,  # FIX 3: prevenir fuga de KV-cache
                 }
                 if image_sizes is not None:
                     generate_kwargs["image_sizes"] = image_sizes
@@ -103,6 +104,7 @@ class SelfPolishCore:
                     "do_sample": True,
                     "temperature": GENERATION_TEMPERATURE,
                     "pad_token_id": self.tokenizer.eos_token_id,
+                    "use_cache": False,  # FIX 3: prevenir fuga de KV-cache
                 }
                 with torch.no_grad():
                     output_ids = self.model.language_model.generate(**generate_kwargs)
@@ -194,6 +196,7 @@ class SelfPolishCore:
             "max_new_tokens": GENERATION_MAX_TOKENS,
             "do_sample": False,
             "pad_token_id": self.tokenizer.eos_token_id,
+            "use_cache": False,  # FIX 3: prevenir fuga de KV-cache
         }
         with torch.no_grad():
             if pixel_values is not None:
@@ -216,6 +219,11 @@ class SelfPolishCore:
         )
 
         torch.cuda.empty_cache()
+
+        # FIX 2: Sembrar estabilidad inicial para que la primera variante
+        # no obtenga stability=1.0 artificialmente
+        if len(baseline_symbols) > 0:
+            self.detector.update_reference(baseline_symbols)
 
         # Extraer la pregunta original del prompt para variantes
         # Formato: "USER: <image>\n{question} ASSISTANT:"

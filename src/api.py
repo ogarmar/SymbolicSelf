@@ -35,6 +35,10 @@ class RefineResponse(BaseModel):
     """Respuesta del endpoint /refine."""
     response: str
     scs: float
+    # FIX 6: Campos de metricas individuales
+    consistency: float
+    stability: float
+    cross_modal: float
     diagnosis: str
     healing_action: str
     latency_ms: float
@@ -50,13 +54,25 @@ class HealthResponse(BaseModel):
 # ── Estado global ──────────────────────────────────────────────────────
 
 _pipeline = None
-_init_lock = asyncio.Lock()
+
+# FIX 5: Lazy Lock — no crear asyncio.Lock al importar (rompe tests).
+# Se instancia la primera vez que se necesita.
+_init_lock: asyncio.Lock | None = None
+
+
+def _get_lock() -> asyncio.Lock:
+    """Lazy Lock pattern: crea el lock solo cuando se necesita."""
+    global _init_lock
+    if _init_lock is None:
+        _init_lock = asyncio.Lock()
+    return _init_lock
 
 
 async def _ensure_pipeline():
     """Inicializa pipeline con lock async (thread-safe, una sola vez)."""
     global _pipeline
-    async with _init_lock:
+    lock = _get_lock()
+    async with lock:
         if _pipeline is None:
             from src.symbolic_self import SymbolicSelfPipeline
             logger.info("Inicializando pipeline con adapter...")
@@ -115,9 +131,13 @@ async def refine(
         lambda: pipeline.process(question, img, n_variants=n_variants),
     )
 
+    # FIX 6: Mapear metricas individuales desde result.metrics
     return RefineResponse(
         response=result.response,
         scs=result.scs,
+        consistency=result.metrics.consistency,
+        stability=result.metrics.stability,
+        cross_modal=result.metrics.cross_modal,
         diagnosis=result.diagnosis,
         healing_action=result.healing_action,
         latency_ms=result.latency_ms,

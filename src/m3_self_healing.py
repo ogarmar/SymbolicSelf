@@ -27,6 +27,8 @@ from src.config import (
     DRIFT_STABILITY_THRESHOLD,
     ENTROPY_CHANGE_THRESHOLD,
 )
+from src.symbol_utils import align_distributions, symbol_distribution
+from scipy.spatial.distance import jensenshannon
 
 if TYPE_CHECKING:
     from src.symbol_detector import SymbolDetector
@@ -107,11 +109,10 @@ class SelfHealingEngine:
             )
 
         # ── Estabilidad (1 - JSD baseline <-> actual) ─────────────────────
-        dist_base = self._symbol_distribution(self.baseline_symbols)
-        dist_curr = self._symbol_distribution(current_symbols)
-        p, q = self._align_distributions(dist_base, dist_curr)
+        dist_base = symbol_distribution(self.baseline_symbols)
+        dist_curr = symbol_distribution(current_symbols)
+        p, q = align_distributions(dist_base, dist_curr)
 
-        from scipy.spatial.distance import jensenshannon
         jsd_val = float(jensenshannon(p, q))
         stability = 1.0 - jsd_val
 
@@ -147,30 +148,9 @@ class SelfHealingEngine:
         logger.info("Diagnostico: %s", diagnosis)
         return diagnosis
 
-    # ── Utilidades de distribucion (evita circular import con SymbolDetector) ──
-
-    @staticmethod
-    def _symbol_distribution(symbols: np.ndarray) -> np.ndarray:
-        """Convierte cluster IDs en distribucion de probabilidad normalizada."""
-        valid = symbols[symbols >= 0]
-        if len(valid) == 0:
-            return np.array([1.0])
-        max_id = int(valid.max()) + 1
-        counts = np.bincount(valid, minlength=max_id).astype(float)
-        total = counts.sum()
-        if total == 0:
-            return np.array([1.0])
-        return counts / total
-
-    @staticmethod
-    def _align_distributions(p: np.ndarray, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Alinea dos distribuciones al mismo tamano (padding con 0)."""
-        max_len = max(len(p), len(q))
-        p_aligned = np.zeros(max_len)
-        q_aligned = np.zeros(max_len)
-        p_aligned[:len(p)] = p
-        q_aligned[:len(q)] = q
-        return p_aligned, q_aligned
+    # FIX 7: Delegado a symbol_utils (DRY)
+    _symbol_distribution = staticmethod(symbol_distribution)
+    _align_distributions = staticmethod(align_distributions)
 
     # ── Entropia simbolica ─────────────────────────────────────────────────
 

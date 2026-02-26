@@ -15,22 +15,12 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import torch
-from transformers import (
-    BitsAndBytesConfig,
-    LlavaNextForConditionalGeneration,
-    LlavaNextProcessor,
-)
 
-from src.config import (
-    DEFAULT_N_VARIANTS,
-    MAX_MEMORY,
-    MODEL_ID,
-    QUANTIZATION,
-    TORCH_DTYPE,
-)
+from src.config import DEFAULT_N_VARIANTS, MODEL_ID
 from src.m1_self_polish import SelfPolishCore
 from src.m3_self_healing import SelfHealingEngine
 from src.m5_semantic_memory import SemanticMemory
+from src.model_loader import load_model_sync
 from src.symbol_detector import SymbolDetector
 
 logger = logging.getLogger(__name__)
@@ -69,31 +59,18 @@ class SymbolicSelfPipeline:
     """
 
     def __init__(self, model_id: str = MODEL_ID, adapter_path: str | None = None) -> None:
-        logger.info("Cargando modelo %s ...", model_id)
+        """Inicializa pipeline usando model_loader centralizado.
+
+        FIX 1: Usa load_model_sync() en vez de cargar el modelo inline.
+        Esto evita tener dos modelos en VRAM si se crea mas de una instancia.
+        """
         start = time.time()
 
-        bnb_config = BitsAndBytesConfig(**QUANTIZATION)
-        self.processor = LlavaNextProcessor.from_pretrained(model_id)
-        self.model = LlavaNextForConditionalGeneration.from_pretrained(
-            model_id,
-            quantization_config=bnb_config,
-            torch_dtype=TORCH_DTYPE,
-            device_map="auto",
-            max_memory=MAX_MEMORY,
-            low_cpu_mem_usage=True,
+        # ── Carga delegada al singleton centralizado ───────────────────
+        self.model, self.processor = load_model_sync(
+            model_id=model_id,
+            adapter_path=adapter_path,
         )
-
-        # ── LoRA adapter (si existe) ───────────────────────────────────
-        self.adapter_path = adapter_path
-        if adapter_path:
-            from pathlib import Path
-            if Path(adapter_path).exists():
-                from peft import PeftModel
-                logger.info("Cargando LoRA adapter desde %s", adapter_path)
-                self.model = PeftModel.from_pretrained(self.model, adapter_path)
-                logger.info("LoRA adapter cargado — modelo fine-tuned activo.")
-            else:
-                logger.warning("adapter_path=%s no existe, usando base model.", adapter_path)
 
         self.detector = SymbolDetector(self.model)
         self.polisher = SelfPolishCore(
@@ -148,7 +125,7 @@ class SymbolicSelfPipeline:
             cross_modal=raw_metrics.get("cross_modal", 0.0),
         )
 
-        # ── M2: Extraer simbolos finales (incluyendo imagen) ──────────────
+        # ── M2: Extraer simbolos finales (incluyendo imagen) ──────────
         final_prompt = f"USER: <image>\n{question}\n{best_response} ASSISTANT:"
         final_inputs = self.processor(
             text=final_prompt, images=image, return_tensors="pt",
@@ -160,7 +137,7 @@ class SymbolicSelfPipeline:
             image_sizes=final_inputs.get("image_sizes"),
         )
 
-        # Actualizar referencia de estabilidad explicitamente (P3 fix)
+        # Actualizar referencia de estabilidad explicitamente
         if len(final_symbols) > 0:
             self.detector.update_reference(final_symbols)
 
@@ -169,19 +146,16 @@ class SymbolicSelfPipeline:
         healing_action = ""
         if len(final_symbols) > 0:
             if not self._baseline_established:
-                # Primera llamada: establecer referencia
                 self.healer.establish_baseline(final_symbols)
                 self._baseline_established = True
                 diagnosis_str = "baseline_set"
             else:
-                # Llamadas siguientes: diagnosticar contra la referencia
                 diagnosis = self.healer.diagnose(final_symbols)
                 diagnosis_str = diagnosis.status.value
                 healing_action = diagnosis.healing_action
 
         # ── M5: Almacenar en memoria semantica ─────────────────────────
         if len(final_symbols) > 0:
-            # Usar activacion media de la ultima capa como embedding
             embedding = np.zeros(4096, dtype=np.float32)
             last_layer_key = f"layer_{max(self.detector.layers)}"
             if last_layer_key in self.detector.activations:
@@ -195,6 +169,9 @@ class SymbolicSelfPipeline:
                 symbols=final_symbols,
                 scs=best_scs,
             )
+
+        # ── FIX 4: Limpiar activaciones tras almacenar ─────────────────
+        self.detector.activations.clear()
 
         # ── Limpiar VRAM ───────────────────────────────────────────────
         torch.cuda.empty_cache()
