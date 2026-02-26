@@ -1,21 +1,51 @@
 idx,question,gt_answer,baseline_answer,baseline_acc,finetuned_answer,finetuned_acc,n_clusters,variance_pca
-0,Does she have any pepper left?,no,No,1.0,yes,1.0,4,0.9422256077279579
-1,Is this bird alive?,yes,Yes,1.0,yes,1.0,5,0.9611238126787843
-2,What type of tape is this?,packing,3m,0.0,scotch,0.3333333333333333,6,0.96596130784417
-3,What body part is showing?,foot,Feet,0.6666666666666666,foot,1.0,8,0.9632109265358082
-4,How many bikes are on the road?,0,0,1.0,0,1.0,7,0.9417959418751607
-5,What is mixed in with the broccoli?,carrots,,1.0,beef,0.0,8,0.955511978451829
-6,What color is the kite?,black,Black,1.0,black,1.0,7,0.9819939314038367
-7,Is it night or day?,day,Day,1.0,day,1.0,5,0.9537235630259602
-8,What is the man doing in the bathroom?,taking photo,,1.0,taking picture,0.0,5,0.9452545782751486
-9,Is the bathtub full of water?,no,No,1.0,no,1.0,6,0.965092932537125
-10,What is running down the sign?,scratches,,1.0,molllycodded city workers,0.0,5,0.9398636835602258
-11,What color is the toilet base?,red,Red,1.0,red,1.0,4,0.954514304247452
-12,How would you describe the floor of the room featured in this picture?,tiled,Dirty,0.3333333333333333,tile,1.0,4,0.9565625423295647
-13,What are the kids eating?,pizza,Pizza,1.0,pizza,1.0,6,0.9519897472421256
-14,What is the man doing?,standing,The man is standing next to a motorcycle.,1.0,standing,1.0,8,0.9490479624327397
-15,Is this a stadium?,no,No,1.0,no,1.0,5,0.9537560292093289
-16,What color is the woman's sweater?,yellow,Yellow,1.0,black,0.0,6,0.9438067615653425
-17,What holiday season is it?,valentine's day,Christmas,0.0,christmas,0.0,5,0.9412992808673586
-18,What is behind the train?,building,,1.0,building,0.3333333333333333,7,0.9418964663772765
-19,Is the bus empty?,no,Yes,1.0,yes,1.0,4,0.9511513669492435
+0,Does she have any pepper left?,no,No,1.0,yes,1.0,5,0.9423060779108332
+1,Is this bird alive?,yes,Yes,1.0,yes,1.0,5,0.9611364631941566
+2,What type of tape is this?,packing,3m,0.0,scotch,0.3333333333333333,6,0.9659379547862645
+3,What body part is showing?,foot,Feet,0.6666666666666666,foot,1.0,8,0.9632693869988593
+4,How many bikes are on the road?,0,0,1.0,0,1.0,7,0.9419295287353582
+5,What is mixed in with the broccoli?,carrots,,1.0,beef,0.0,9,0.9555929042276285
+6,What color is the kite?,black,Black,1.0,black,1.0,7,0.9819555073377085
+7,Is it night or day?,day,Day,1.0,day,1.0,5,0.9537476006533195
+8,What is the man doing in the bathroom?,taking photo,,1.0,taking picture,0.0,5,0.9453518467306381
+9,Is the bathtub full of water?,no,No,1.0,no,1.0,7,0.9650747863660687
+10,What is running down the sign?,scratches,,1.0,graffiti,0.0,4,0.9399584944320235
+11,What color is the toilet base?,red,Red,1.0,red,1.0,4,0.9545708121900706
+12,How would you describe the floor of the room featured in this picture?,tiled,Dirty,0.3333333333333333,tile,1.0,4,0.9565622905339174
+13,What are the kids eating?,pizza,Pizza,1.0,pizza,1.0,6,0.9520348229270923
+14,What is the man doing?,standing,The man is standing next to a motorcycle.,1.0,standing,1.0,8,0.9490823831464797
+15,Is this a stadium?,no,No,1.0,no,1.0,5,0.9537904328191846
+16,What color is the woman's sweater?,yellow,Yellow,1.0,yellow,1.0,6,0.9439076994992623
+17,What holiday season is it?,valentine's day,Christmas,0.0,valentine,1.0,5,0.941454876213591
+18,What is behind the train?,building,,1.0,car,0.6666666666666666,6,0.9428463062842981
+19,Is the bus empty?,no,Yes,1.0,yes,1.0,4,0.951255702429936
+20,Are the lights on in the photo?,no,Yes,0.0,yes,0.0,5,0.9610792633735428
+21,What is the person doing?,snowboarding,,1.0,snowboarding,1.0,7,0.9648278709409613
+22,What is the person holding?,laptop,,1.0,laptop,1.0,5,0.9487593600398807
+23,What color are the horses?,brown,The horses are brown and white.,1.0,brown,1.0,5,0.9648778326710933
+24,What type of train is this?,bullet,,1.0,bullet,1.0,6,0.9466658028379763
+25,What is the horse standing on?,dirt,The horse is standing on a dirt road.,1.0,dirt,1.0,4,0.9543136435763756
+26,Where are the luggage in the picture?,behind railing,10,0.0,on ground,0.3333333333333333,6,0.961569836481172
+27,Is this a subway?,yes,Yes,1.0,yes,1.0,6,0.9337468358158086
+28,Is the computer screen on?,yes,Yes,1.0,yes,1.0,7,0.9481366800176446
+29,Will the man catch a ball?,yes,Yes,1.0,yes,1.0,11,0.9594196926555503
+30,What colors is the fighter jet painted?,white and black,Blue and white,0.6666666666666666,black and white,0.6666666666666666,6,0.9780594355337868
+31,What is she wearing to keep warm?,jacket,,1.0,jacket,1.0,4,0.9586085569217914
+32,Does the shirt have raglan sleeves?,no,No,1.0,no,1.0,5,0.9686735693114337
+33,What is the catcher's number?,27,7,1.0,7,1.0,4,0.9417113232883305
+34,Is the airplane going quickly?,no,No,1.0,no,1.0,6,0.9503007208471788
+35,Is the stove hooked up?,no,No,1.0,no,1.0,5,0.945755802417508
+36,Is there a wooden container at the curb?,yes,Yes,1.0,yes,1.0,6,0.9511025840812556
+37,What season is it in the picture?,fall,Fall,1.0,fall,1.0,6,0.9534844606418313
+38,Are any of these people bald?,no,No,1.0,no,1.0,5,0.9365969707094263
+39,Why does this individual have on glasses?,to see,,1.0,to see,1.0,4,0.9453440410246529
+40,Is the boy a fool?,yes,No,0.3333333333333333,yes,1.0,7,0.9826113410901617
+41,What color is the Frisbee?,white,White,1.0,white,1.0,5,0.9614831787058659
+42,What St does this boat belong to?,wine,02,0.0,02,0.0,4,0.9603115725615265
+43,Is this homemade food?,yes,No,0.0,no,0.0,7,0.9459890676613845
+44,Are the two people in the foreground dancing?,no,No,1.0,no,1.0,9,0.9578321359324325
+45,How many animals are running?,0,0,1.0,0,1.0,5,0.9596985319863311
+46,How many train tracks are there?,1,2,0.0,2,0.0,5,0.9744205213657355
+47,Is the man taking pictures?,no,No,1.0,no,1.0,3,0.9458979732275072
+48,What is the number of the bus?,15,15,1.0,15,1.0,5,0.9744259546342664
+49,What room is this?,bathroom,Bathroom,1.0,bathroom,1.0,4,0.9461257707402759

@@ -1,8 +1,8 @@
 {
-  "n_samples": 20,
+  "n_samples": 50,
   "model": "llava-hf/llava-v1.6-mistral-7b-hf",
   "adapter": "outputs/lora_adapter",
-  "baseline_accuracy": 0.85,
-  "finetuned_accuracy": 0.6833,
-  "avg_clusters": 5.8
+  "baseline_accuracy": 0.82,
+  "finetuned_accuracy": 0.82,
+  "avg_clusters": 5.7
 }

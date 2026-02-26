@@ -8,7 +8,7 @@ Prueba los componentes que necesitan GPU:
 Requiere:
   - GPU con ≥6GB VRAM
   - Modelo LLaVA descargado
-  - Al menos 1 imagen COCO en data/coco/images/val2017/
+  - Al menos 1 imagen COCO en data/archive/coco2017/val2017/
 
 Uso:
   python test/test_gpu_pipeline.py
@@ -37,7 +37,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 def find_test_image():
     """Busca una imagen COCO para testing."""
-    img_dir = Path("data/coco/images/val2017")
+    img_dir = Path("data/archive/coco2017/val2017")
     if img_dir.exists():
         images = list(img_dir.glob("*.jpg"))[:1]
         if images:
@@ -240,7 +240,7 @@ def main():
     # Buscar imagen
     img_path = find_test_image()
     if img_path is None:
-        print("❌ No se encontró imagen de test. Necesitas al menos 1 .jpg en data/coco/images/val2017/")
+        print("❌ No se encontró imagen de test. Necesitas al menos 1 .jpg en data/archive/coco2017/val2017/")
         sys.exit(1)
 
     print(f"📷 Imagen de test: {img_path}")
