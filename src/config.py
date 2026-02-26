@@ -67,8 +67,15 @@ ADVERSARIAL_STABILITY_THRESHOLD = 0.3
 DRIFT_STABILITY_THRESHOLD = 0.75   # Antes 0.6 — subido para capturar drift borderline
 ENTROPY_CHANGE_THRESHOLD = 0.5
 
-# ── Paths adicionales ─────────────────────────────────────────────────
+# ── Paths y constantes adicionales ─────────────────────────────────────
 LORA_ADAPTER_PATH = OUTPUTS_DIR / "lora_adapter"
 DEFAULT_IMAGE_SIZE = (448, 448)
 INFERENCE_MAX_TOKENS = 30
 PROMPT_TEMPLATE = "USER: <image>\n{question}\nAnswer with a single word or short phrase. ASSISTANT:"
+
+# ── Magic Numbers (Pipeline & Memoria) ─────────────────────────────────
+MIN_BASELINE_CLUSTERS = 2
+MEMORY_RETRIEVE_MIN_SIM = 0.3
+LORA_DROPOUT = 0.05
+LORA_RANK = 8
+

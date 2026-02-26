@@ -24,6 +24,7 @@ from src.config import (
     REFINE_TEMPLATES,
 )
 from src.symbol_detector import SymbolDetector
+from src.symbol_utils import SCSMetrics
 
 if TYPE_CHECKING:
     from PIL import Image
@@ -62,6 +63,7 @@ class SelfPolishCore:
         pixel_values: torch.Tensor | None = None,
         image_sizes: torch.Tensor | None = None,
         n_variants: int = DEFAULT_N_VARIANTS,
+        temperature: float = GENERATION_TEMPERATURE,
     ) -> list[str]:
         """Genera N variantes refinadas.
 
@@ -91,7 +93,7 @@ class SelfPolishCore:
                     "pixel_values": pixel_values,
                     "max_new_tokens": GENERATION_MAX_TOKENS,
                     "do_sample": True,
-                    "temperature": GENERATION_TEMPERATURE,
+                    "temperature": temperature,
                     "pad_token_id": self.tokenizer.eos_token_id,
                     "use_cache": False,  # FIX 3: prevenir fuga de KV-cache
                 }
@@ -106,7 +108,7 @@ class SelfPolishCore:
                     **inputs,
                     "max_new_tokens": GENERATION_MAX_TOKENS,
                     "do_sample": True,
-                    "temperature": GENERATION_TEMPERATURE,
+                    "temperature": temperature,
                     "pad_token_id": self.tokenizer.eos_token_id,
                     "use_cache": False,  # FIX 3: prevenir fuga de KV-cache
                 }
@@ -134,7 +136,7 @@ class SelfPolishCore:
         baseline_symbols,
         pixel_values: torch.Tensor | None = None,
         image_sizes: torch.Tensor | None = None,
-    ) -> tuple[str, float, dict]:
+    ) -> tuple[str, float, "SCSMetrics"]:
         """Evalúa todas las variantes y devuelve la mejor por SCS.
 
         Extrae símbolos de cada variante usando el prompt multimodal completo
@@ -143,7 +145,7 @@ class SelfPolishCore:
         """
         best_scs = -1.0
         best_variant = ""
-        best_metrics: dict = {}
+        best_metrics: SCSMetrics = SCSMetrics()
 
         for i, variant_text in enumerate(variants):
             if pixel_values is not None:
@@ -185,7 +187,8 @@ class SelfPolishCore:
         pixel_values: torch.Tensor | None = None,
         image_sizes: torch.Tensor | None = None,
         n_variants: int = DEFAULT_N_VARIANTS,
-    ) -> tuple[str, float, dict]:
+        temperature: float = GENERATION_TEMPERATURE,
+    ) -> tuple[str, float, "SCSMetrics"]:
         """Pipeline completo: baseline → variantes → SCS → selección.
 
         Returns:
@@ -243,12 +246,13 @@ class SelfPolishCore:
             pixel_values=pixel_values,
             image_sizes=image_sizes,
             n_variants=n_variants,
+            temperature=temperature,
         )
 
         # 4. Seleccionar la mejor
         if not variants:
             logger.warning("No se generaron variantes — devolviendo baseline.")
-            return baseline_response, 0.0, {}
+            return baseline_response, 0.0, SCSMetrics()
 
         best_text, best_scs, best_metrics = self.select_best(
             question, variants, baseline_symbols,
@@ -258,7 +262,7 @@ class SelfPolishCore:
 
         # Si ninguna variante supera el baseline, devolver baseline
         if not best_text:
-            return baseline_response, 0.0, {}
+            return baseline_response, 0.0, SCSMetrics()
 
         logger.info("Ganadora: SCS=%.3f | %s", best_scs, best_text[:100])
         return best_text, best_scs, best_metrics

@@ -137,7 +137,7 @@ def main():
     parser.add_argument("--max_samples", type=int, default=1000, help="Muestras de training")
     parser.add_argument("--epochs", type=int, default=1, help="Épocas")
     parser.add_argument("--lr", type=float, default=2e-4, help="Learning rate")
-    parser.add_argument("--lora_r", type=int, default=8, help="LoRA rank")
+    parser.add_argument("--lora_r", type=int, default=LORA_RANK, help="LoRA rank")
     parser.add_argument("--grad_accum", type=int, default=8, help="Gradient accumulation steps")
     parser.add_argument("--output_dir", type=str, default="outputs/lora_adapter", help="Directorio para guardar adapter")
     parser.add_argument("--eval_samples", type=int, default=200, help="Muestras de evaluación")
@@ -187,7 +187,7 @@ def main():
         r=args.lora_r,
         lora_alpha=args.lora_r * 2,  # Escala estándar: alpha = 2*r
         target_modules=["q_proj", "v_proj"],  # Capas de atención del LM
-        lora_dropout=0.05,
+        lora_dropout=LORA_DROPOUT,
         bias="none",
         task_type="CAUSAL_LM",
     )

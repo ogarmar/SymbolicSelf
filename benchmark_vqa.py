@@ -25,6 +25,7 @@ import torch
 from peft import PeftModel
 
 from data.vqa_loader import VQADataset
+from src.config import MODEL_ID
 from src.model_loader import load_model_sync
 from src.symbol_detector import SymbolDetector
 

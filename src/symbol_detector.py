@@ -28,7 +28,7 @@ from src.config import (
     SCS_BETA,
     SCS_GAMMA,
 )
-from src.symbol_utils import align_distributions, symbol_distribution
+from src.symbol_utils import align_distributions, symbol_distribution, SCSMetrics
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel
@@ -253,7 +253,7 @@ class SymbolDetector:
         self,
         symbols_current: np.ndarray,
         symbols_baseline: np.ndarray,
-    ) -> tuple[float, dict[str, float]]:
+    ) -> tuple[float, "SCSMetrics"]:
         """Calcula SCS = α·consistency + β·stability + γ·cross_modal.
 
         Usa Jensen-Shannon divergence sobre distribuciones de símbolos
@@ -264,7 +264,7 @@ class SymbolDetector:
             symbols_baseline: Clusters de la respuesta baseline.
 
         Returns:
-            (scs_score, metrics_dict) con keys consistency/stability/cross_modal.
+            (scs_score, metrics_obj) donde metrics_obj es un SCSMetrics.
         """
         # ── Consistency (1 - JSD entre current y baseline) ─────────────
         dist_curr = symbol_distribution(symbols_current)
@@ -314,11 +314,11 @@ class SymbolDetector:
         scs = SCS_ALPHA * consistency + SCS_BETA * stability + SCS_GAMMA * cross_modal
         scs = min(1.0, max(0.0, scs))
 
-        metrics = {
-            "consistency": round(consistency, 4),
-            "stability": round(stability, 4),
-            "cross_modal": round(cross_modal, 4),
-        }
+        metrics = SCSMetrics(
+            consistency=round(consistency, 4),
+            stability=round(stability, 4),
+            cross_modal=round(cross_modal, 4),
+        )
 
         logger.info("SCS=%.3f | %s", scs, metrics)
         return scs, metrics

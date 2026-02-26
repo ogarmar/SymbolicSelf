@@ -10,6 +10,15 @@ y m3_self_healing.py.
 from __future__ import annotations
 
 import numpy as np
+from dataclasses import dataclass
+
+
+@dataclass
+class SCSMetrics:
+    """Metricas individuales del Symbolic Coherence Score."""
+    consistency: float = 0.0
+    stability: float = 0.0
+    cross_modal: float = 0.0
 
 
 def symbol_distribution(symbols: np.ndarray) -> np.ndarray:

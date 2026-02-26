@@ -85,6 +85,15 @@ python test/test_self_polish_scs.py
 - **Python**: 3.10+
 - **CUDA**: 11.8+
 
+## Architectural Trade-offs & Latency
+
+**The 8-Forward Pass Cost:** To guarantee high coherence, the `process()` method runs multiple forward passes per query:
+1. M5 context query extraction (~1 pass)
+2. Baseline generation (~1 pass)
+3. 5 M1 variants generation (~5 passes)
+4. M2 self-healing/M5 storage final extraction (~1 pass)
+This totals **8 forward passes per request**. On an RTX 4050 (6GB VRAM), processing a single image with `n_variants=5` averages **4–6 minutes**. This is a deliberate architectural trade-off to maximise reasoning coherence over raw throughput.
+
 ## SCS (Symbolic Coherence Score)
 
 ```
