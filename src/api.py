@@ -146,11 +146,11 @@ async def refine(
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
-    """Estado del servidor (no carga el modelo si aun no esta listo)."""
+    status = _pipeline.get_status() if _pipeline else {}
     return HealthResponse(
         status="ok" if _pipeline is not None else "loading",
         model=MODEL_ID,
         # CPython GIL makes this bool read safe without a lock;
         # revisit if moving to sub-interpreters.
-        baseline_established=_pipeline._baseline_established if _pipeline else False,
+        baseline_established=status.get("baseline_established", False),
     )

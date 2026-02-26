@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -47,7 +48,8 @@ class SemanticMemory:
     def __init__(self, max_entries: int = 1000, embedding_dim: int = 4096) -> None:
         self.max_entries = max_entries
         self.embedding_dim = embedding_dim
-        self.entries: list[MemoryEntry] = []
+        # deque con maxlen hace evicción FIFO automatica en O(1)
+        self.entries: deque[MemoryEntry] = deque(maxlen=max_entries)
         self._embeddings_matrix: np.ndarray | None = None  # Cache para búsqueda rápida
 
     def _invalidate_cache(self) -> None:
@@ -74,7 +76,7 @@ class SemanticMemory:
     ) -> None:
         """Almacena una nueva entrada en la memoria.
 
-        Si la memoria está llena, elimina la entrada más antigua.
+        La deque con maxlen evicta automaticamente la entrada más antigua.
         """
         entry = MemoryEntry(
             question=question,
@@ -86,12 +88,11 @@ class SemanticMemory:
             metadata=metadata or {},
         )
 
-        if len(self.entries) >= self.max_entries:
-            # Evicción FIFO (más antigua primero)
-            self.entries.pop(0)
-            logger.debug("Memoria llena — evicción de entrada más antigua.")
+        was_full = len(self.entries) >= self.max_entries
+        self.entries.append(entry)  # O(1) — deque evicta la más antigua si llena
+        if was_full:
+            logger.debug("Memoria llena — evicción automática de entrada más antigua.")
 
-        self.entries.append(entry)
         self._invalidate_cache()
         logger.debug("Memoria: %d/%d entradas.", len(self.entries), self.max_entries)
 

@@ -57,8 +57,14 @@ def main():
         best_scs = 0.0
         best_response = baseline
 
-        baseline_ids_tok = processor.tokenizer(baseline, return_tensors="pt").input_ids.to(model.device)
-        baseline_symbols, _, _ = detector.extract_symbols(baseline_ids_tok)
+        # Extraer baseline symbols con imagen (multimodal) — NO text-only.
+        # Text-only y multimodal usan espacios de activacion distintos;
+        # comparar JSD entre ambos no es una medicion SCS valida.
+        baseline_symbols, _, _ = detector.extract_symbols(
+            inputs["input_ids"],
+            pixel_values=inputs.get("pixel_values"),
+            image_sizes=inputs.get("image_sizes"),
+        )
 
         for template in templates:
             refine_prompt = f"USER: <image>\n{question} Refine: {template} {baseline} ASSISTANT:"
@@ -71,14 +77,18 @@ def main():
                     max_new_tokens=20,
                     do_sample=False,
                     pad_token_id=processor.tokenizer.eos_token_id,
+                    use_cache=False,
                 )
 
             new_ids = refined_ids[0][refine_inputs["input_ids"].shape[-1]:]
             refined = processor.decode(new_ids, skip_special_tokens=True).strip()
 
-            # Calcular SCS real
-            var_ids = processor.tokenizer(refined, return_tensors="pt").input_ids.to(model.device)
-            var_symbols, _, _ = detector.extract_symbols(var_ids)
+            # Calcular SCS real — variante tambien con imagen
+            var_symbols, _, _ = detector.extract_symbols(
+                refine_inputs["input_ids"],
+                pixel_values=refine_inputs.get("pixel_values"),
+                image_sizes=refine_inputs.get("image_sizes"),
+            )
 
             if len(var_symbols) > 0 and len(baseline_symbols) > 0:
                 scs, metrics = detector.compute_scs(var_symbols, baseline_symbols)

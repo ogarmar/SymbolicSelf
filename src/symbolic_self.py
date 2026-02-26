@@ -1,9 +1,13 @@
 # src/symbolic_self.py — Pipeline Maestro SymbolicSelf
 """
 Orquesta los modulos M1 (Self-Polish), M2 (Symbol Detector),
-M3 (Self-Healing) y M5 (Semantic Memory) en un pipeline secuencial:
+M3 (Self-Healing), M4 (Meta-Evolutionary hyperparams) y
+M5 (Semantic Memory) en un pipeline secuencial:
 
     Input -> M5(retrieve) -> M1(variantes) -> M2(SCS) -> M3(healing) -> M5(store) -> Output
+
+NOTA: No usar con uvicorn --workers > 1.
+El singleton de model_loader no comparte estado entre procesos.
 """
 
 from __future__ import annotations
@@ -16,9 +20,16 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from src.config import DEFAULT_N_VARIANTS, MODEL_ID
+from src.config import (
+    DEFAULT_N_VARIANTS,
+    GENERATION_TEMPERATURE,
+    MAX_TOKENS_PCA,
+    MODEL_ID,
+    PROMPT_TEMPLATE,
+)
 from src.m1_self_polish import SelfPolishCore
 from src.m3_self_healing import SelfHealingEngine
+from src.m4_meta_evo import StrategyGenome
 from src.m5_semantic_memory import SemanticMemory
 from src.model_loader import load_model_sync
 from src.symbol_detector import SymbolDetector
@@ -27,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 # Evitar fragmentacion de VRAM
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+# Minimo de clusters validos para aceptar un baseline
+MIN_BASELINE_CLUSTERS = 2
 
 
 # ── Typed dataclasses ──────────────────────────────────────────────────
@@ -51,7 +65,7 @@ class SymbolicResult:
 
 
 class SymbolicSelfPipeline:
-    """Pipeline maestro que integra M1 + M2 + M3 + M5.
+    """Pipeline maestro que integra M1 + M2 + M3 + M4 + M5.
 
     Uso:
         pipeline = SymbolicSelfPipeline()
@@ -59,11 +73,7 @@ class SymbolicSelfPipeline:
     """
 
     def __init__(self, model_id: str = MODEL_ID, adapter_path: str | None = None) -> None:
-        """Inicializa pipeline usando model_loader centralizado.
-
-        FIX 1: Usa load_model_sync() en vez de cargar el modelo inline.
-        Esto evita tener dos modelos en VRAM si se crea mas de una instancia.
-        """
+        """Inicializa pipeline usando model_loader centralizado."""
         start = time.time()
 
         # ── Carga delegada al singleton centralizado ───────────────────
@@ -80,7 +90,30 @@ class SymbolicSelfPipeline:
         self.memory = SemanticMemory(max_entries=500, embedding_dim=4096)
         self._baseline_established = False
 
+        # M4: Usar StrategyGenome como fuente de hiperparametros.
+        # Actualmente usa defaults; tras optimize() se puede pasar
+        # el best_genome resultante.
+        self._genome = StrategyGenome()
+
         logger.info("Pipeline listo en %.1fs.", time.time() - start)
+
+    # ── Status (desacoplado de api.py) ─────────────────────────────────
+
+    def get_status(self) -> dict:
+        """Estado publico del pipeline para consumo por api.py."""
+        return {
+            "baseline_established": self._baseline_established,
+            "memory_entries": len(self.memory),
+            "genome": {
+                "n_variants": self._genome.n_variants,
+                "temperature": self._genome.temperature,
+                "scs_weights": (
+                    self._genome.scs_alpha,
+                    self._genome.scs_beta,
+                    self._genome.scs_gamma,
+                ),
+            },
+        }
 
     # ── Punto de entrada principal ─────────────────────────────────────────
 
@@ -88,32 +121,71 @@ class SymbolicSelfPipeline:
         self,
         question: str,
         image=None,
-        n_variants: int = DEFAULT_N_VARIANTS,
+        n_variants: int | None = None,
     ) -> SymbolicResult:
         """Ejecuta el pipeline completo sobre una imagen + pregunta.
 
         Args:
             question: Pregunta VQA.
             image: PIL.Image o None (modo texto puro).
-            n_variants: Numero de variantes para self-polish.
+            n_variants: Numero de variantes. Si None, usa el genome M4.
 
         Returns:
             SymbolicResult con respuesta, SCS, diagnostico y metricas.
         """
+        # M4: usar hiperparametros del genome si no se especifican
+        if n_variants is None:
+            n_variants = self._genome.n_variants
+
         start = time.time()
 
+        try:
+            return self._process_impl(question, image, n_variants, start)
+        finally:
+            # Garantizar limpieza de activaciones y VRAM ante cualquier
+            # excepcion mid-pipeline (hooks quedan registrados, pero
+            # activaciones stale se eliminan).
+            self.detector.activations.clear()
+            torch.cuda.empty_cache()
+
+    def _process_impl(
+        self,
+        question: str,
+        image,
+        n_variants: int,
+        start: float,
+    ) -> SymbolicResult:
+        """Implementacion interna de process(), envuelta en try/finally."""
+
+        # ── Preparar inputs para M5 retrieve ───────────────────────────
+        # Hacemos un forward pass ligero con el prompt original para
+        # extraer un embedding real que use como query de M5 retrieve.
+        prompt = PROMPT_TEMPLATE.format(question=question)
+        inputs = self.processor(text=prompt, images=image, return_tensors="pt")
+        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+
+        pixel_values = inputs.get("pixel_values")
+        image_sizes = inputs.get("image_sizes")
+
         # ── M5: Recuperar contexto de memoria semantica ────────────────
-        # LIMITACION: Usa zero-embedding como proxy porque la activacion
-        # real no esta disponible antes del primer forward pass. Con
-        # min_similarity=0.5, y dado que los embeddings almacenados son
-        # medias de activaciones float16 de alta dimensionalidad, la
-        # similitud coseno contra un vector cero sera ~0 para la mayoria
-        # de entradas. En la practica, `past` estara vacio casi siempre.
-        # Esto se reconoce como limitacion en la tesis.
         memory_hint = ""
         if len(self.memory) > 0:
+            # Extraer embedding real del prompt para un retrieve preciso.
+            # Esto requiere un forward pass, pero reutilizamos las
+            # activaciones que los hooks ya capturan.
+            query_symbols, _, _ = self.detector.extract_symbols(
+                inputs["input_ids"],
+                pixel_values=pixel_values,
+                image_sizes=image_sizes,
+            )
+            # Construir query embedding desde activaciones del ultimo layer
             query_emb = np.zeros(4096, dtype=np.float32)
-            past = self.memory.retrieve(query_emb, top_k=2, min_similarity=0.5)
+            last_layer_key = f"layer_{max(self.detector.layers)}"
+            if last_layer_key in self.detector.activations:
+                act = self.detector.activations[last_layer_key]
+                query_emb = act.reshape(-1, act.shape[-1]).mean(axis=0)[:4096]
+
+            past = self.memory.retrieve(query_emb, top_k=2, min_similarity=0.3)
             if past:
                 memory_hint = "\nContext from memory: " + "; ".join(
                     f"[Q: {e.question[:40]} -> A: {e.answer[:40]}]"
@@ -121,20 +193,13 @@ class SymbolicSelfPipeline:
                 )
                 logger.info("M5 retrieve: %d entradas relevantes.", len(past))
 
-        # ── Preparar inputs ────────────────────────────────────────────
-        # FIX 1: memory_hint va DENTRO del bloque USER, antes de ASSISTANT:
-        # Ponerlo despues de ASSISTANT: era prompt injection — el modelo lo
-        # interpretaba como que el asistente ya habia empezado a hablar.
+        # ── Reconstruir prompt con hint (si existe) ────────────────────
         if memory_hint:
             prompt = f"USER: <image>\n{question}{memory_hint} ASSISTANT:"
-        else:
-            prompt = f"USER: <image>\n{question} ASSISTANT:"
-
-        inputs = self.processor(text=prompt, images=image, return_tensors="pt")
-        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-
-        pixel_values = inputs.get("pixel_values")
-        image_sizes = inputs.get("image_sizes")
+            inputs = self.processor(text=prompt, images=image, return_tensors="pt")
+            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            pixel_values = inputs.get("pixel_values")
+            image_sizes = inputs.get("image_sizes")
 
         # ── M1: Self-Polish (baseline + variantes + seleccion por SCS) ─
         best_response, best_scs, raw_metrics = self.polisher.run(
@@ -182,10 +247,19 @@ class SymbolicSelfPipeline:
         diagnosis_str = "healthy"
         healing_action = ""
         if len(final_symbols) > 0:
+            n_clusters = len(set(final_symbols[final_symbols >= 0]))
             if not self._baseline_established:
-                self.healer.establish_baseline(final_symbols)
-                self._baseline_established = True
-                diagnosis_str = "baseline_set"
+                if n_clusters >= MIN_BASELINE_CLUSTERS:
+                    self.healer.establish_baseline(final_symbols)
+                    self._baseline_established = True
+                    diagnosis_str = "baseline_set"
+                else:
+                    logger.warning(
+                        "Solo %d clusters validos (<MIN_BASELINE_CLUSTERS=%d), "
+                        "baseline no establecido — posiblemente degenerate.",
+                        n_clusters, MIN_BASELINE_CLUSTERS,
+                    )
+                    diagnosis_str = "baseline_deferred"
             else:
                 diagnosis = self.healer.diagnose(final_symbols)
                 diagnosis_str = diagnosis.status.value
@@ -211,12 +285,6 @@ class SymbolicSelfPipeline:
                 symbols=final_symbols,
                 scs=best_scs,
             )
-
-        # Limpiar activaciones tras almacenar
-        self.detector.activations.clear()
-
-        # ── Limpiar VRAM ───────────────────────────────────────────────
-        torch.cuda.empty_cache()
 
         elapsed_ms = (time.time() - start) * 1000
 

@@ -198,6 +198,13 @@ class SymbolDetector:
         acts_fused = np.concatenate(acts_trimmed, axis=-1)
 
         # Aplanar batch×seq → tokens: (n_tokens, fused_dim)
+        total_tokens = acts_fused.reshape(-1, acts_fused.shape[-1]).shape[0]
+        if total_tokens > MAX_TOKENS_PCA:
+            logger.warning(
+                "Truncando %d tokens a MAX_TOKENS_PCA=%d para PCA. "
+                "Tokens de imagen AnyRes descartados silenciosamente.",
+                total_tokens, MAX_TOKENS_PCA,
+            )
         token_flat = acts_fused.reshape(-1, acts_fused.shape[-1])[:MAX_TOKENS_PCA]
         n_tokens = token_flat.shape[0]
 
@@ -242,10 +249,6 @@ class SymbolDetector:
 
     # ── Symbolic Coherence Score ───────────────────────────────────────────
 
-    # FIX 7: Delegado a symbol_utils (DRY)
-    _symbol_distribution = staticmethod(symbol_distribution)
-    _align_distributions = staticmethod(align_distributions)
-
     def compute_scs(
         self,
         symbols_current: np.ndarray,
@@ -261,19 +264,19 @@ class SymbolDetector:
             symbols_baseline: Clusters de la respuesta baseline.
 
         Returns:
-            (scs_score, metrics_dict)
+            (scs_score, metrics_dict) con keys consistency/stability/cross_modal.
         """
         # ── Consistency (1 - JSD entre current y baseline) ─────────────
-        dist_curr = self._symbol_distribution(symbols_current)
-        dist_base = self._symbol_distribution(symbols_baseline)
-        p, q = self._align_distributions(dist_curr, dist_base)
+        dist_curr = symbol_distribution(symbols_current)
+        dist_base = symbol_distribution(symbols_baseline)
+        p, q = align_distributions(dist_curr, dist_base)
         jsd = jensenshannon(p, q)  # 0 = idénticas, 1 = totalmente distintas
         consistency = 1.0 - float(jsd)
 
         # ── Stability (1 - JSD entre current y extracción anterior) ────
         if self._previous_symbols is not None and len(self._previous_symbols) > 0:
-            dist_prev = self._symbol_distribution(self._previous_symbols)
-            p2, q2 = self._align_distributions(dist_curr, dist_prev)
+            dist_prev = symbol_distribution(self._previous_symbols)
+            p2, q2 = align_distributions(dist_curr, dist_prev)
             stability = 1.0 - float(jensenshannon(p2, q2))
         else:
             stability = 1.0  # Primera iteración
