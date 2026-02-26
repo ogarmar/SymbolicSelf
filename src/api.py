@@ -150,5 +150,7 @@ async def health():
     return HealthResponse(
         status="ok" if _pipeline is not None else "loading",
         model=MODEL_ID,
+        # CPython GIL makes this bool read safe without a lock;
+        # revisit if moving to sub-interpreters.
         baseline_established=_pipeline._baseline_established if _pipeline else False,
     )

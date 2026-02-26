@@ -102,32 +102,43 @@ class SymbolicSelfPipeline:
         """
         start = time.time()
 
+        # ── M5: Recuperar contexto de memoria semantica ────────────────
+        # LIMITACION: Usa zero-embedding como proxy porque la activacion
+        # real no esta disponible antes del primer forward pass. Con
+        # min_similarity=0.5, y dado que los embeddings almacenados son
+        # medias de activaciones float16 de alta dimensionalidad, la
+        # similitud coseno contra un vector cero sera ~0 para la mayoria
+        # de entradas. En la practica, `past` estara vacio casi siempre.
+        # Esto se reconoce como limitacion en la tesis.
+        memory_hint = ""
+        if len(self.memory) > 0:
+            query_emb = np.zeros(4096, dtype=np.float32)
+            past = self.memory.retrieve(query_emb, top_k=2, min_similarity=0.5)
+            if past:
+                memory_hint = "\nContext from memory: " + "; ".join(
+                    f"[Q: {e.question[:40]} -> A: {e.answer[:40]}]"
+                    for e, _ in past
+                )
+                logger.info("M5 retrieve: %d entradas relevantes.", len(past))
+
         # ── Preparar inputs ────────────────────────────────────────────
-        prompt = f"USER: <image>\n{question} ASSISTANT:"
+        # FIX 1: memory_hint va DENTRO del bloque USER, antes de ASSISTANT:
+        # Ponerlo despues de ASSISTANT: era prompt injection — el modelo lo
+        # interpretaba como que el asistente ya habia empezado a hablar.
+        if memory_hint:
+            prompt = f"USER: <image>\n{question}{memory_hint} ASSISTANT:"
+        else:
+            prompt = f"USER: <image>\n{question} ASSISTANT:"
+
         inputs = self.processor(text=prompt, images=image, return_tensors="pt")
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
         pixel_values = inputs.get("pixel_values")
         image_sizes = inputs.get("image_sizes")
 
-        # ── M5: Recuperar contexto de memoria semantica ────────────────
-        memory_hint = ""
-        if len(self.memory) > 0:
-            # Usar zero-embedding como proxy (la activacion real no esta
-            # disponible antes del primer forward pass). LIMITACION: match debil.
-            query_emb = np.zeros(4096, dtype=np.float32)
-            past = self.memory.retrieve(query_emb, top_k=2, min_similarity=0.5)
-            if past:
-                memory_hint = " Context from memory: " + "; ".join(
-                    f"[Q: {e.question[:40]} -> A: {e.answer[:40]}]"
-                    for e, _ in past
-                )
-                logger.info("M5 retrieve: %d entradas relevantes.", len(past))
-
         # ── M1: Self-Polish (baseline + variantes + seleccion por SCS) ─
-        effective_prompt = prompt + memory_hint if memory_hint else prompt
         best_response, best_scs, raw_metrics = self.polisher.run(
-            effective_prompt,
+            prompt,
             pixel_values=pixel_values,
             image_sizes=image_sizes,
             n_variants=n_variants,
@@ -141,6 +152,11 @@ class SymbolicSelfPipeline:
         )
 
         # ── M2: Extraer simbolos finales (incluyendo imagen) ──────────
+        # NOTE: Estos simbolos representan el estado interno del modelo al
+        # procesar (question + best_response) juntos — NO el estado de
+        # activaciones generativas durante la produccion de best_response.
+        # Esta distincion se reconoce como limitacion del enfoque de
+        # coherencia simbolica. Ver seccion correspondiente de la tesis.
         final_prompt = f"USER: <image>\n{question}\n{best_response} ASSISTANT:"
         final_inputs = self.processor(
             text=final_prompt, images=image, return_tensors="pt",
@@ -152,7 +168,13 @@ class SymbolicSelfPipeline:
             image_sizes=final_inputs.get("image_sizes"),
         )
 
-        # Actualizar referencia de estabilidad explicitamente
+        # Actualizar referencia de estabilidad explicitamente.
+        # NOTA ARQUITECTONICA: Tras M1.run(), _previous_symbols apunta a
+        # baseline_symbols (establecido dentro de run()). Aqui se actualiza
+        # a final_symbols del tercer forward pass. En la siguiente llamada
+        # a process(), la metrica de estabilidad comparara los nuevos
+        # simbolos contra final_symbols de ESTA llamada. La cadena es:
+        #   third-pass symbols(call N) -> stability baseline(call N+1)
         if len(final_symbols) > 0:
             self.detector.update_reference(final_symbols)
 
@@ -170,6 +192,11 @@ class SymbolicSelfPipeline:
                 healing_action = diagnosis.healing_action
 
         # ── M5: Almacenar en memoria semantica ─────────────────────────
+        # NOTA: El embedding se calcula a partir de las activaciones del
+        # tercer forward pass (M2 final), mientras que el SCS proviene
+        # de M1. Ambas metricas usan activaciones de forward passes
+        # distintos. Esto es internamente consistente pero las dos
+        # computaciones no comparten estado de activacion.
         if len(final_symbols) > 0:
             embedding = np.zeros(4096, dtype=np.float32)
             last_layer_key = f"layer_{max(self.detector.layers)}"
@@ -185,7 +212,7 @@ class SymbolicSelfPipeline:
                 scs=best_scs,
             )
 
-        # ── FIX 4: Limpiar activaciones tras almacenar ─────────────────
+        # Limpiar activaciones tras almacenar
         self.detector.activations.clear()
 
         # ── Limpiar VRAM ───────────────────────────────────────────────

@@ -22,37 +22,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import torch
-from transformers import BitsAndBytesConfig, LlavaNextForConditionalGeneration, LlavaNextProcessor
 from peft import PeftModel
 
 from data.vqa_loader import VQADataset
-from src.config import MODEL_ID, QUANTIZATION, TORCH_DTYPE, MAX_MEMORY
+from src.model_loader import load_model_sync
 from src.symbol_detector import SymbolDetector
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 def load_model(adapter_path=None):
-    """Carga UN solo modelo LLaVA. Si adapter_path, aplica LoRA adapter."""
-    print("🔧 Cargando modelo base...")
-    bnb_config = BitsAndBytesConfig(**QUANTIZATION)
-    processor = LlavaNextProcessor.from_pretrained(MODEL_ID)
-    model = LlavaNextForConditionalGeneration.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_config,
-        torch_dtype=TORCH_DTYPE,
-        device_map="auto",
-        max_memory=MAX_MEMORY,
-        low_cpu_mem_usage=True,
-    )
-
-    has_adapter = False
-    if adapter_path and Path(adapter_path).exists():
-        print(f"🔌 Cargando LoRA adapter desde {adapter_path}...")
-        model = PeftModel.from_pretrained(model, adapter_path)
-        has_adapter = True
-        print("✅ Adapter cargado (enable/disable para comparar)")
-
+    """Carga modelo via singleton + aplica adapter si se especifica."""
+    model, processor = load_model_sync(adapter_path=adapter_path)
+    has_adapter = adapter_path is not None and Path(adapter_path).exists()
     return model, processor, has_adapter
 
 

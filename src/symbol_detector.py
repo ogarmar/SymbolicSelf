@@ -294,8 +294,7 @@ class SymbolDetector:
             dot = np.dot(vis_vec, lang_vec)
             norm_v = np.linalg.norm(vis_vec) + 1e-8
             norm_l = np.linalg.norm(lang_vec) + 1e-8
-            cross_modal = float(dot / (norm_v * norm_l))
-            cross_modal = max(0.0, cross_modal)  # Clamp a [0, 1]
+            cross_modal = float(np.clip(dot / (norm_v * norm_l), 0.0, 1.0))
         else:
             # Fallback: usar ratio de tokens asignados (normalizado)
             logger.warning(
