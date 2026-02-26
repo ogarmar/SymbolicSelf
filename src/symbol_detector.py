@@ -161,22 +161,27 @@ class SymbolDetector:
 
         # Forward pass — activa los hooks
         # LLaVA-Next requiere pixel_values + image_sizes + attention_mask
-        with torch.no_grad():
-            if pixel_values is not None:
-                # attention_mask es obligatorio para _merge_input_ids_with_image_features
-                if "attention_mask" not in model_kwargs:
-                    model_kwargs["attention_mask"] = torch.ones_like(input_ids)
-                self.model(
-                    input_ids=input_ids,
-                    pixel_values=pixel_values,
-                    **model_kwargs,
-                )
-            else:
-                # Forward por el language model (Mistral) directamente
-                self.model.language_model(input_ids=input_ids)
+        try:
+            with torch.no_grad():
+                if pixel_values is not None:
+                    # attention_mask es obligatorio para _merge_input_ids_with_image_features
+                    if "attention_mask" not in model_kwargs:
+                        model_kwargs["attention_mask"] = torch.ones_like(input_ids)
+                    self.model(
+                        input_ids=input_ids,
+                        pixel_values=pixel_values,
+                        **model_kwargs,
+                    )
+                else:
+                    # Forward por el language model (Mistral) directamente
+                    self.model.language_model(input_ids=input_ids)
+        except Exception:
+            self.activations.clear()
+            torch.cuda.empty_cache()
+            raise
 
         if not self.activations:
-            logger.warning("No se capturaron activaciones — ¿hooks registrados correctamente?")
+            logger.warning("No se capturaron activaciones — hooks registrados correctamente?")
             return np.array([]), np.array([]), 0.0
 
         # ── Fusión multi-capa a nivel de TOKEN ─────────────────────────
@@ -311,13 +316,16 @@ class SymbolDetector:
             cross_modal = max(0.0, cross_modal)  # Clamp a [0, 1]
         else:
             # Fallback: usar ratio de tokens asignados (normalizado)
+            logger.warning(
+                "Vision hook no activo — cross_modal usa fallback. "
+                "El componente cross-modal del SCS no es fiable para esta muestra."
+            )
             n_assigned = int((symbols_current >= 0).sum())
             n_total = len(symbols_current)
             raw_ratio = n_assigned / max(n_total, 1)
             cross_modal = 1.0 / (1.0 + np.exp(-10 * (raw_ratio - 0.3)))
 
-        # Guardar para próxima iteración
-        self._previous_symbols = symbols_current.copy()
+        # NOT updated here — use update_reference() explicitly from pipeline
 
         scs = SCS_ALPHA * consistency + SCS_BETA * stability + SCS_GAMMA * cross_modal
         scs = min(1.0, max(0.0, scs))
@@ -330,6 +338,14 @@ class SymbolDetector:
 
         logger.info("SCS=%.3f | %s", scs, metrics)
         return scs, metrics
+
+    def update_reference(self, symbols: np.ndarray) -> None:
+        """Actualiza la referencia de estabilidad explicitamente.
+
+        Llamar desde el pipeline despues de seleccionar la mejor variante.
+        NO se actualiza automaticamente en compute_scs.
+        """
+        self._previous_symbols = symbols.copy()
 
     # ── Cleanup ────────────────────────────────────────────────────────────
 

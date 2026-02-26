@@ -73,7 +73,7 @@ class SelfPolishCore:
 
         for i, template in enumerate(self.templates[:n_variants]):
             if baseline_response:
-                instruction = template.format(response=baseline_response)
+                instruction = template.format(question=question, response=baseline_response)
             else:
                 instruction = question
 

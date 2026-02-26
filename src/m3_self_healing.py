@@ -106,12 +106,10 @@ class SelfHealingEngine:
                 "Llama a establish_baseline() antes de diagnosticar."
             )
 
-        # ── Estabilidad (1 - JSD baseline ↔ actual) ─────────────────────
-        from src.symbol_detector import SymbolDetector
-
-        dist_base = SymbolDetector._symbol_distribution(self.baseline_symbols)
-        dist_curr = SymbolDetector._symbol_distribution(current_symbols)
-        p, q = SymbolDetector._align_distributions(dist_base, dist_curr)
+        # ── Estabilidad (1 - JSD baseline <-> actual) ─────────────────────
+        dist_base = self._symbol_distribution(self.baseline_symbols)
+        dist_curr = self._symbol_distribution(current_symbols)
+        p, q = self._align_distributions(dist_base, dist_curr)
 
         from scipy.spatial.distance import jensenshannon
         jsd_val = float(jensenshannon(p, q))
@@ -146,10 +144,35 @@ class SelfHealingEngine:
             )
 
         self.history.append(diagnosis)
-        logger.info("Diagnóstico: %s", diagnosis)
+        logger.info("Diagnostico: %s", diagnosis)
         return diagnosis
 
-    # ── Entropía simbólica ─────────────────────────────────────────────────
+    # ── Utilidades de distribucion (evita circular import con SymbolDetector) ──
+
+    @staticmethod
+    def _symbol_distribution(symbols: np.ndarray) -> np.ndarray:
+        """Convierte cluster IDs en distribucion de probabilidad normalizada."""
+        valid = symbols[symbols >= 0]
+        if len(valid) == 0:
+            return np.array([1.0])
+        max_id = int(valid.max()) + 1
+        counts = np.bincount(valid, minlength=max_id).astype(float)
+        total = counts.sum()
+        if total == 0:
+            return np.array([1.0])
+        return counts / total
+
+    @staticmethod
+    def _align_distributions(p: np.ndarray, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Alinea dos distribuciones al mismo tamano (padding con 0)."""
+        max_len = max(len(p), len(q))
+        p_aligned = np.zeros(max_len)
+        q_aligned = np.zeros(max_len)
+        p_aligned[:len(p)] = p
+        q_aligned[:len(q)] = q
+        return p_aligned, q_aligned
+
+    # ── Entropia simbolica ─────────────────────────────────────────────────
 
     @staticmethod
     def _compute_entropy(symbols: np.ndarray) -> float:

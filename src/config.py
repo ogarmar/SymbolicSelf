@@ -50,19 +50,25 @@ SCS_ALPHA = 0.5   # Peso consistencia
 SCS_BETA = 0.3    # Peso estabilidad
 SCS_GAMMA = 0.2   # Peso alineación cross-modal
 
-# ── Self-Polish ────────────────────────────────────────────────────────────
+# ── Self-Polish ────────────────────────────────────────────────────────
 REFINE_TEMPLATES = [
-    "Clarify this answer: {response}",
-    "Make it more precise: {response}",
-    "Complete missing details: {response}",
-    "Verify the logic: {response}",
-    "Be more specific: {response}",
+    "Given the question '{question}', clarify this answer: {response}",
+    "Given the question '{question}', make it more precise: {response}",
+    "Given the question '{question}', complete missing details: {response}",
+    "Given the question '{question}', verify the logic: {response}",
+    "Given the question '{question}', be more specific: {response}",
 ]
 DEFAULT_N_VARIANTS = 5
 GENERATION_MAX_TOKENS = 50
 GENERATION_TEMPERATURE = 0.7
 
-# ── Self-Healing ───────────────────────────────────────────────────────────
+# ── Self-Healing ───────────────────────────────────────────────────────
 ADVERSARIAL_STABILITY_THRESHOLD = 0.3
 DRIFT_STABILITY_THRESHOLD = 0.75   # Antes 0.6 — subido para capturar drift borderline
 ENTROPY_CHANGE_THRESHOLD = 0.5
+
+# ── Paths adicionales ─────────────────────────────────────────────────
+LORA_ADAPTER_PATH = OUTPUTS_DIR / "lora_adapter"
+DEFAULT_IMAGE_SIZE = (448, 448)
+INFERENCE_MAX_TOKENS = 30
+PROMPT_TEMPLATE = "USER: <image>\n{question}\nAnswer with a single word or short phrase. ASSISTANT:"

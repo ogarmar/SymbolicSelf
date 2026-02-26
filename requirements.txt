@@ -5,6 +5,7 @@ transformers==5.2.0
 accelerate==1.12.0
 bitsandbytes==0.49.2
 sentencepiece
+peft>=0.18.0,<1.0.0
 
 # Data
 numpy
@@ -15,7 +16,13 @@ tqdm
 
 # Symbol Detector (M2)
 scikit-learn
-hdbscan
+hdbscan==0.8.33
+scipy>=1.9.0,<2.0.0
+
+# API
+fastapi
+python-multipart
+uvicorn
 
 # Visualization
 matplotlib
