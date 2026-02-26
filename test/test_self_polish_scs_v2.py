@@ -13,44 +13,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import requests
 import torch
 from PIL import Image
-from transformers import (
-    BitsAndBytesConfig,
-    LlavaNextForConditionalGeneration,
-    LlavaNextProcessor,
-)
 
-from src.config import MODEL_ID, QUANTIZATION, TORCH_DTYPE, MAX_MEMORY
+from src.model_loader import load_model_sync
 from src.symbol_detector import SymbolDetector
 from src.m1_self_polish import SelfPolishCore
+from test.utils import download_image
 
 
 IMAGE_URL = "http://images.cocodataset.org/val2017/000000039769.jpg"
 
 
-def download_image(url: str) -> Image.Image:
-    response = requests.get(url, stream=True, timeout=10)
-    response.raise_for_status()
-    image = Image.open(io.BytesIO(response.content)).convert("RGB")
-    image.thumbnail((448, 448))
-    return image
-
-
 def main():
     print("🔧 Cargando modelo para test visual de Self-Polish + SCS...")
 
-    bnb_config = BitsAndBytesConfig(**QUANTIZATION)
-    processor = LlavaNextProcessor.from_pretrained(MODEL_ID)
-    model = LlavaNextForConditionalGeneration.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_config,
-        torch_dtype=TORCH_DTYPE,
-        device_map="auto",
-        max_memory=MAX_MEMORY,
-        low_cpu_mem_usage=True,
-    )
+    model, processor = load_model_sync()
 
     image = download_image(IMAGE_URL)
     print(f"✅ Imagen descargada: {image.size}")

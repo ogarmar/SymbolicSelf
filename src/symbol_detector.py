@@ -116,9 +116,6 @@ class SymbolDetector:
         """Registra hook en la salida de la vision tower para cross-modal."""
         vision_tower = None
         for name, module in self.model.named_modules():
-            if "vision_tower" in name and not any(c for c in module.children()):
-                # Coger el último módulo del vision tower (output)
-                continue
             if name == "model.vision_tower":
                 vision_tower = module
                 break

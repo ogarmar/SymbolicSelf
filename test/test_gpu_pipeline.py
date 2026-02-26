@@ -24,9 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch
 from PIL import Image
-from transformers import BitsAndBytesConfig, LlavaNextForConditionalGeneration, LlavaNextProcessor
 
-from src.config import MODEL_ID, QUANTIZATION, TORCH_DTYPE, MAX_MEMORY
+from src.model_loader import load_model_sync
 from src.symbol_detector import SymbolDetector
 from src.m1_self_polish import SelfPolishCore
 from src.m3_self_healing import SelfHealingEngine
@@ -49,19 +48,9 @@ def find_test_image():
 
 
 def load_model():
-    """Carga modelo LLaVA 4-bit."""
-    print("🔧 Cargando modelo (esto tarda ~30s)...")
-    bnb_config = BitsAndBytesConfig(**QUANTIZATION)
-    processor = LlavaNextProcessor.from_pretrained(MODEL_ID)
-    model = LlavaNextForConditionalGeneration.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_config,
-        torch_dtype=TORCH_DTYPE,
-        device_map="auto",
-        max_memory=MAX_MEMORY,
-        low_cpu_mem_usage=True,
-    )
-    return model, processor
+    """Carga modelo via singleton centralizado."""
+    print("🔧 Cargando modelo (singleton, esto tarda ~30s la primera vez)...")
+    return load_model_sync()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -283,8 +272,8 @@ def main():
         import traceback; traceback.print_exc()
         failed += 1
 
-    # Liberar modelo antes del pipeline (que carga uno nuevo)
-    del model
+    # NOTA: No hacemos del model — el Singleton de model_loader lo retiene
+    # intencionalmente para reutilizarlo en test_pipeline_global.
     torch.cuda.empty_cache()
 
     # Test Pipeline Global

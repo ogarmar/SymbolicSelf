@@ -9,10 +9,15 @@ Self-correcting symbolic reasoning pipeline for Vision-Language Models (LLaVA-v1
 | **M1** Self-Polish | `src/m1_self_polish.py` | Generates N refined variants, selects best by SCS |
 | **M2** Symbol Detector | `src/symbol_detector.py` | PyTorch hooks → PCA → HDBSCAN → emergent symbols + SCS |
 | **M3** Self-Healing | `src/m3_self_healing.py` | Detects adversarial attacks & concept drift |
-| **Pipeline** | `src/symbolic_self.py` | Orchestrates M1 → M2 → M3 end-to-end |
+| **M4** Meta-Evolution | `src/m4_meta_evo.py` | Evolutionary optimisation of pipeline hyperparameters |
+| **M5** Semantic Memory | `src/m5_semantic_memory.py` | In-memory vector store for retrieval-augmented context |
+| **Pipeline** | `src/symbolic_self.py` | Orchestrates M1 → M5(retrieve) → M2 → M3 → M5(store) |
+| **Model Loader** | `src/model_loader.py` | Thread-safe singleton for LLaVA loading |
+| **API** | `src/api.py` | FastAPI REST server (`/refine`, `/health`) |
 | **Config** | `src/config.py` | All paths, hyperparameters, and constants |
+| **Utilities** | `src/symbol_utils.py` | Shared distribution functions (DRY) |
 
-**M4** (Meta-Evolutionary) and **M5** (Semantic Memory) are planned for future milestones.
+**M6** (Meta-Evolution at population level) is planned for a future milestone.
 
 ## Project Structure
 
@@ -20,11 +25,18 @@ Self-correcting symbolic reasoning pipeline for Vision-Language Models (LLaVA-v1
 TFGSymbolicSelf/
 ├── src/
 │   ├── config.py              # Centralized configuration
+│   ├── model_loader.py        # Thread-safe singleton model loader
 │   ├── symbol_detector.py     # M2: Hooks + PCA + HDBSCAN + SCS
+│   ├── symbol_utils.py        # Shared distribution utilities
 │   ├── m1_self_polish.py      # M1: Variant generation + selection
 │   ├── m3_self_healing.py     # M3: Adversarial/drift detection
-│   └── symbolic_self.py       # Pipeline maestro
+│   ├── m4_meta_evo.py         # M4: Evolutionary optimiser
+│   ├── m5_semantic_memory.py  # M5: Semantic memory store
+│   ├── symbolic_self.py       # Pipeline maestro
+│   └── api.py                 # FastAPI REST server
 ├── test/
+│   ├── utils.py               # Shared test utilities
+│   ├── test_gpu_pipeline.py   # Full GPU integration test
 │   ├── test_symbol_detector.py
 │   ├── test_self_healing.py
 │   ├── test_self_polish_scs.py

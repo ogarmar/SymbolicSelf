@@ -75,6 +75,10 @@ class SelfPolishCore:
             if baseline_response:
                 instruction = template.format(question=question, response=baseline_response)
             else:
+                logger.warning(
+                    "generate_variants called with empty baseline_response "
+                    "— variants will lack diversity."
+                )
                 instruction = question
 
             # Construir prompt adecuado según modalidad

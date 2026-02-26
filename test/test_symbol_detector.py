@@ -14,29 +14,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch
-from transformers import (
-    BitsAndBytesConfig,
-    LlavaNextForConditionalGeneration,
-    LlavaNextProcessor,
-)
 
-from src.config import MODEL_ID, QUANTIZATION, TORCH_DTYPE, MAX_MEMORY
+from src.model_loader import load_model_sync
 from src.symbol_detector import SymbolDetector
 
 
 def main():
     print("🔧 Cargando modelo para test de SymbolDetector...")
 
-    bnb_config = BitsAndBytesConfig(**QUANTIZATION)
-    processor = LlavaNextProcessor.from_pretrained(MODEL_ID)
-    model = LlavaNextForConditionalGeneration.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_config,
-        torch_dtype=TORCH_DTYPE,
-        device_map="auto",
-        max_memory=MAX_MEMORY,
-        low_cpu_mem_usage=True,
-    )
+    model, processor = load_model_sync()
 
     # ── Test 1: Inicialización y hooks ─────────────────────────────────
     print("\n📊 TEST 1: Crear SymbolDetector y registrar hooks")

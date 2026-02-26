@@ -8,54 +8,26 @@ Este test NO usa el pipeline SymbolicSelf — solo valida el modelo base.
 
 import sys
 import os
-import io
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch
-import requests
 from PIL import Image
-from transformers import (
-    BitsAndBytesConfig,
-    LlavaNextForConditionalGeneration,
-    LlavaNextProcessor,
-)
 
-from src.config import MODEL_ID, QUANTIZATION, TORCH_DTYPE, MAX_MEMORY
+from src.config import MODEL_ID
+from src.model_loader import load_model_sync
+from test.utils import download_image
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-
-def download_image(url: str) -> Image.Image | None:
-    """Descarga y redimensiona imagen para ahorrar VRAM."""
-    try:
-        response = requests.get(url, stream=True, timeout=10)
-        response.raise_for_status()
-        image = Image.open(io.BytesIO(response.content)).convert("RGB")
-        image.thumbnail((448, 448))
-        print(f"✅ Imagen OK: {image.size}")
-        return image
-    except Exception as e:
-        print(f"❌ Error descargando imagen: {e}")
-        return None
 
 
 def main():
     print(f"🔧 Cargando {MODEL_ID} para test baseline...")
     start_load = time.time()
 
-    bnb_config = BitsAndBytesConfig(**QUANTIZATION)
-    processor = LlavaNextProcessor.from_pretrained(MODEL_ID)
-    model = LlavaNextForConditionalGeneration.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_config,
-        torch_dtype=TORCH_DTYPE,
-        device_map="auto",
-        max_memory=MAX_MEMORY,
-        low_cpu_mem_usage=True,
-    )
+    model, processor = load_model_sync()
 
     print(f"✅ Modelo cargado en {time.time() - start_load:.1f}s")
 

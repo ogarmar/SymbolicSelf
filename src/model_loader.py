@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 _model: PreTrainedModel | None = None
 _processor: LlavaNextProcessor | None = None
-_async_lock = asyncio.Lock()
+_async_lock: asyncio.Lock | None = None  # FIX 4: Lazy — creado bajo demanda
 
 
 def _load_base_model(
@@ -111,8 +111,11 @@ async def get_model_async(
     """Carga singleton async thread-safe (para FastAPI).
 
     Usa asyncio.Lock para evitar cargas duplicadas bajo concurrencia.
+    FIX 4: Lock creado lazy para no romper tests al importar.
     """
-    global _model, _processor
+    global _model, _processor, _async_lock
+    if _async_lock is None:
+        _async_lock = asyncio.Lock()
     async with _async_lock:
         if _model is None:
             _model, _processor = _load_base_model(model_id, adapter_path)

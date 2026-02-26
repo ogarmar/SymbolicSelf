@@ -110,9 +110,24 @@ class SymbolicSelfPipeline:
         pixel_values = inputs.get("pixel_values")
         image_sizes = inputs.get("image_sizes")
 
+        # ── M5: Recuperar contexto de memoria semantica ────────────────
+        memory_hint = ""
+        if len(self.memory) > 0:
+            # Usar zero-embedding como proxy (la activacion real no esta
+            # disponible antes del primer forward pass). LIMITACION: match debil.
+            query_emb = np.zeros(4096, dtype=np.float32)
+            past = self.memory.retrieve(query_emb, top_k=2, min_similarity=0.5)
+            if past:
+                memory_hint = " Context from memory: " + "; ".join(
+                    f"[Q: {e.question[:40]} -> A: {e.answer[:40]}]"
+                    for e, _ in past
+                )
+                logger.info("M5 retrieve: %d entradas relevantes.", len(past))
+
         # ── M1: Self-Polish (baseline + variantes + seleccion por SCS) ─
+        effective_prompt = prompt + memory_hint if memory_hint else prompt
         best_response, best_scs, raw_metrics = self.polisher.run(
-            prompt,
+            effective_prompt,
             pixel_values=pixel_values,
             image_sizes=image_sizes,
             n_variants=n_variants,
